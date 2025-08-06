@@ -1,0 +1,118 @@
+import { isDbAvailable, requireDbAsync } from "@/lib/db-guard";
+import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth/next";
+import { authOptions } from "@/lib/auth";
+import { db } from "@/lib/database";
+import {
+  documents,
+  documentVersions,
+  activities,
+  documentAnalytics,
+} from "@/db/schema";
+import { z } from "zod";
+import { eq } from "drizzle-orm";
+import {
+  uploadFile,
+  getSignedFileUrl,
+  validateFileType,
+  validateFileSize,
+  ALLOWED_DOCUMENT_TYPES,
+  MAX_FILE_SIZE,
+} from "@/lib/storage";
+
+// This route must run at request time and in Node.js
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+// ... schema and config remain the same
+
+export async function POST(req: NextRequest) {
+  if (!isDbAvailable()) {
+    return NextResponse.json(
+      { error: "Service temporarily unavailable" },
+      { status: 503 },
+    );
+  }
+
+  try {
+    const startTime = Date.now();
+    const session = await getServerSession(authOptions);
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const formData = await req.formData();
+    const file = formData.get("file") as File;
+
+    if (!file) {
+      return NextResponse.json({ error: "No file provided" }, { status: 400 });
+    }
+
+    const buffer = Buffer.from(await file.arrayBuffer());
+
+    const [document] = await db
+      .insert(documents)
+      .values({
+        title: file.name,
+        mimeType: file.type,
+        fileSize: file.size,
+        status: "DRAFT",
+        organizationId: session.user.organizationId,
+      })
+      .returning();
+
+    try {
+      const uploadResult = await uploadFile({
+        file: buffer,
+        fileName: `${document.id}-${file.name}`,
+        mimeType: file.type,
+        organizationId: session.user.organizationId,
+        userId: session.user.id,
+      });
+
+      const fileUrl = await getSignedFileUrl(uploadResult.key, 7200);
+
+      const [updatedDocument] = await db
+        .update(documents)
+        .set({
+          fileUrl: uploadResult.key,
+        })
+        .where(eq(documents.id, document.id))
+        .returning();
+
+      await db.insert(documentVersions).values({
+        documentId: document.id,
+        version: 1,
+        fileUrl: uploadResult.key,
+        createdById: session.user.id,
+      });
+
+      await db.insert(activities).values({
+        type: "DOCUMENT_UPLOADED",
+        description: `Uploaded document: ${updatedDocument.title}`,
+        userId: session.user.id,
+        metadata: {
+          documentId: updatedDocument.id,
+        },
+      });
+
+      await db.insert(documentAnalytics).values({
+        documentId: updatedDocument.id,
+        organizationId: session.user.organizationId,
+        action: "upload",
+        duration: Date.now() - startTime,
+      });
+
+      return NextResponse.json({ document: updatedDocument }, { status: 201 });
+    } catch (uploadError) {
+      await db.delete(documents).where(eq(documents.id, document.id));
+      throw uploadError;
+    }
+  } catch (error) {
+    console.error("Database error in POST:", error);
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 },
+    );
+  }
+}

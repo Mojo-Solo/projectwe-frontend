@@ -1,0 +1,125 @@
+import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth/next";
+import { authOptions } from "@/lib/auth";
+import { z } from "zod";
+import { ExitPlanningApplicationService } from "@/application/services/exit-planning-application-service";
+import { ExitStrategyService } from "@/domains/exit-planning/services/exit-strategy-service";
+import { PrismaExitStrategyRepository } from "@/domains/exit-planning/repositories/exit-strategy-repository";
+import { ValuationService } from "@/domains/exit-planning/services/valuation-service";
+import { PrismaValuationRepository } from "@/domains/exit-planning/repositories/valuation-repository";
+import { DomainEventPublisherFactory } from "@/domains/shared/domain-event-publisher";
+import { prisma } from "@/lib/prisma-compat";
+
+// Initialize domain services
+const eventPublisher = DomainEventPublisherFactory.create("database", {
+  prisma,
+});
+const exitStrategyRepository = new PrismaExitStrategyRepository(prisma);
+const valuationRepository = new PrismaValuationRepository(prisma);
+const exitStrategyService = new ExitStrategyService(
+  exitStrategyRepository,
+  eventPublisher,
+);
+const valuationService = new ValuationService(
+  valuationRepository,
+  eventPublisher,
+);
+const applicationService = new ExitPlanningApplicationService(
+  exitStrategyService,
+  exitStrategyRepository,
+  valuationService,
+);
+
+interface RouteParams {
+  params: {
+    id: string;
+  };
+}
+
+export async function GET(req: NextRequest, { params }: RouteParams) {
+  try {
+    const session = await getServerSession(authOptions);
+
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { searchParams } = new URL(req.url);
+    const includeSummary = searchParams.get("summary") === "true";
+
+    if (includeSummary) {
+      const result = await applicationService.getStrategySummary(
+        params.id,
+        session.user.id,
+      );
+
+      if (!result.success) {
+        return NextResponse.json(
+          { error: result.error },
+          { status: result.error === "Exit strategy not found" ? 404 : 400 },
+        );
+      }
+
+      return NextResponse.json(result.data);
+    }
+
+    const result = await applicationService.getExitStrategy(
+      params.id,
+      session.user.id,
+    );
+
+    if (!result.success) {
+      return NextResponse.json(
+        { error: result.error },
+        { status: result.error === "Exit strategy not found" ? 404 : 400 },
+      );
+    }
+
+    return NextResponse.json(result.data);
+  } catch (error) {
+    console.error("Error fetching exit strategy:", error);
+    return NextResponse.json(
+      { error: "Failed to fetch exit strategy" },
+      { status: 500 },
+    );
+  }
+}
+
+export async function DELETE(req: NextRequest, { params }: RouteParams) {
+  try {
+    const session = await getServerSession(authOptions);
+
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    // Check if strategy exists and user has permissions
+    const strategy = await exitStrategyRepository.findById(params.id);
+    if (!strategy) {
+      return NextResponse.json(
+        { error: "Exit strategy not found" },
+        { status: 404 },
+      );
+    }
+
+    // For now, just mark as cancelled instead of hard delete
+    const result = await applicationService.updateExitStrategy(params.id, {
+      status: "CANCELLED",
+      lastUpdatedBy: session.user.id,
+    });
+
+    if (!result.success) {
+      return NextResponse.json({ error: result.error }, { status: 400 });
+    }
+
+    return NextResponse.json({
+      message: "Exit strategy cancelled successfully",
+    });
+  } catch (error) {
+    console.error("Error deleting exit strategy:", error);
+    return NextResponse.json(
+      { error: "Failed to delete exit strategy" },
+      { status: 500 },
+    );
+  }
+}

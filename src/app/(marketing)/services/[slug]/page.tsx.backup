@@ -1,0 +1,250 @@
+import type React from 'react';
+import { notFound } from 'next/navigation';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import type { Metadata } from 'next';
+import Image from "next/image";
+
+import Header from '@/components/sections/header';
+import Footer from '@/components/sections/footer';
+import Section from '@/components/section';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { Icons } from '@/components/icons';
+import BlurFade from '@/components/magicui/blur-fade';
+import AnimatedGradientText from '@/components/magicui/animated-gradient-text';
+
+// Define the service data interface based on JSON structure
+interface ServiceData {
+  slug: string;
+  pageTitle: string;
+  metaDescription: string;
+  hero: {
+    title: string;
+    subtitle: string;
+    imageUrl: string;
+    cta: {
+      text: string;
+      href: string;
+    };
+  };
+  introduction: {
+    title: string;
+    paragraphs: string[];
+  };
+  features: Array<{
+    title: string;
+    description: string;
+    icon: string;
+  }>;
+  benefits: {
+    title: string;
+    list: string[];
+  };
+  ctaSection: {
+    title: string;
+    description: string;
+    button: {
+      text: string;
+      href: string;
+    };
+  };
+}
+
+// This is a server component - it will run on the server only
+export async function generateMetadata({ params }: { params: { slug: string } }): Promise<Metadata> {
+  try {
+    const serviceData = await getServiceData(params.slug);
+    return {
+      title: serviceData.pageTitle,
+      description: serviceData.metaDescription,
+    };
+  } catch (error) {
+    return {
+      title: 'Service Not Found',
+      description: 'The requested service could not be found.',
+    };
+  }
+}
+
+// Helper function to get service data
+async function getServiceData(slug: string): Promise<ServiceData> {
+  try {
+    // Try to load from client-specific directory first
+    try {
+      const clientPath = join(process.cwd(), 'src/content/clients/weexit/services', `${slug}.json`);
+      const fileContents = await readFile(clientPath, 'utf8');
+      return JSON.parse(fileContents);
+    } catch (clientError) {
+      // If not found in client directory, fall back to general services directory
+      const filePath = join(process.cwd(), 'src/content/services', `${slug}.json`);
+      const fileContents = await readFile(filePath, 'utf8');
+      return JSON.parse(fileContents);
+    }
+  } catch (error) {
+    console.error(`Error loading service data for ${slug}:`, error);
+    throw error;
+  }
+}
+
+export default async function ServicePage({ params }: { params: { slug: string } }) {
+  // Get service data
+  let serviceData: ServiceData;
+
+  try {
+    serviceData = await getServiceData(params.slug);
+  } catch (error) {
+    notFound();
+  }
+
+  const { hero, introduction, features, benefits, ctaSection } = serviceData;
+
+  return (
+    <div className="min-h-screen flex flex-col">
+      <Header />
+      <main className="flex-grow">
+        {/* Hero Section */}
+        <Section className="bg-gradient-to-r from-primary/10 to-primary/30 py-20">
+          <div className="container mx-auto px-4">
+            <div className="max-w-4xl mx-auto text-center">
+              <BlurFade>
+                <h1 className="text-4xl md:text-5xl font-bold mb-4">
+                  {hero.title}
+                </h1>
+              </BlurFade>
+              <BlurFade delay={0.2}>
+                <p className="text-xl mb-8">{hero.subtitle}</p>
+              </BlurFade>
+              <div className="relative w-full h-64 rounded-lg overflow-hidden">
+                <Image
+                  src="/placeholder.jpg"
+                  alt={serviceData.hero.title}
+                  fill
+                  className="object-cover"
+                  priority
+                />
+              </div>
+              <BlurFade delay={0.4}>
+                <Button asChild size="lg">
+                  <a href={hero.cta.href}>{hero.cta.text}</a>
+                </Button>
+              </BlurFade>
+            </div>
+          </div>
+        </Section>
+
+        {/* Introduction Section */}
+        <Section className="py-16">
+          <div className="container mx-auto px-4">
+            <BlurFade>
+              <h2 className="text-3xl font-bold mb-8">
+                <AnimatedGradientText 
+                  text={introduction.title}
+                  gradientFrom="hsl(var(--primary))"
+                  gradientTo="hsl(var(--secondary))"
+                  duration={5}
+                />
+              </h2>
+            </BlurFade>
+            <div className="space-y-6">
+              {introduction.paragraphs.map((paragraph, index) => (
+                <BlurFade key={`para-${paragraph.substring(0, 20)}-${index}`} delay={0.1 * (index + 1)}>
+                  <p className="text-lg">{paragraph}</p>
+                </BlurFade>
+              ))}
+            </div>
+          </div>
+        </Section>
+
+        {/* Features Section */}
+        <Section className="py-16 bg-gradient-to-b from-gray-50 to-white dark:from-gray-900 dark:to-gray-800">
+          <div className="container mx-auto px-4">
+            <BlurFade className="text-center mb-12">
+              <h2 className="text-3xl font-bold mb-4">
+                Key Features
+              </h2>
+            </BlurFade>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              {features.map((feature, index) => {
+                // Safely access icon component or fallback to a default
+                let IconComponent: React.FC<React.HTMLAttributes<SVGElement>>;
+                
+                // Check if the icon name exists in our Icons object
+                if (feature.icon in Icons) {
+                  IconComponent = Icons[feature.icon as keyof typeof Icons];
+                } else {
+                  // Use spinner as fallback if icon doesn't exist
+                  IconComponent = Icons.spinner;
+                }
+                
+                return (
+                  <BlurFade key={`feature-${feature.title}-${index}`} delay={0.1 * (index + 1)}>
+                    <Card className="h-full">
+                      <CardContent className="p-6">
+                        <div className="flex items-center mb-3">
+                          <div className="mr-2 p-2 rounded-full bg-primary/10">
+                            <IconComponent className="w-5 h-5 text-primary" />
+                          </div>
+                          <h3 className="text-xl font-bold">{feature.title}</h3>
+                        </div>
+                        <p>{feature.description}</p>
+                      </CardContent>
+                    </Card>
+                  </BlurFade>
+                );
+              })}
+            </div>
+          </div>
+        </Section>
+
+        {/* Benefits Section */}
+        <Section className="py-16">
+          <div className="container mx-auto px-4">
+            <BlurFade>
+              <h2 className="text-3xl font-bold mb-8">
+                <AnimatedGradientText 
+                  text={benefits.title}
+                  gradientFrom="hsl(var(--primary))"
+                  gradientTo="hsl(var(--secondary))"
+                  duration={5}
+                />
+              </h2>
+            </BlurFade>
+            <div className="bg-primary/5 p-8 rounded-xl">
+              <ul className="space-y-4">
+                {benefits.list.map((benefit, index) => (
+                  <BlurFade key={`benefit-${benefit.substring(0, 20)}-${index}`} delay={0.1 * (index + 1)}>
+                    <li className="text-lg relative pl-6">
+                      <div className="absolute left-0 top-2 w-2 h-2 rounded-full bg-primary/80" />
+                      {benefit}
+                    </li>
+                  </BlurFade>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </Section>
+
+        {/* CTA Section */}
+        <Section className="py-20 bg-gradient-to-br from-primary/5 via-primary/10 to-secondary/5">
+          <div className="container mx-auto px-4 text-center">
+            <BlurFade>
+              <h2 className="text-3xl font-bold mb-4">
+                {ctaSection.title}
+              </h2>
+            </BlurFade>
+            <BlurFade delay={0.2}>
+              <p className="text-xl mb-8 max-w-3xl mx-auto">{ctaSection.description}</p>
+            </BlurFade>
+            <BlurFade delay={0.4}>
+              <Button asChild size="lg">
+                <a href={ctaSection.button.href}>{ctaSection.button.text}</a>
+              </Button>
+            </BlurFade>
+          </div>
+        </Section>
+      </main>
+      <Footer />
+    </div>
+  );
+}

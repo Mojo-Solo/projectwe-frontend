@@ -1,0 +1,168 @@
+"use client";
+
+import type React from 'react';
+import Link from 'next/link';
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import Header from "@/components/sections/header";
+import Footer from "@/components/sections/footer";
+import Section from "@/components/section";
+import AnimatedGradientText from "@/components/magicui/animated-gradient-text";
+import AnimatedList from "@/components/magicui/animated-list";
+import BlurFade from "@/components/magicui/blur-fade";
+import { BorderBeam } from "@/components/magicui/border-beam";
+import AnimatedBeam from "@/components/magicui/animated-beam";
+import Ripple from "@/components/magicui/ripple";
+import { Icons } from "@/components/icons";
+
+// Service data - in a real implementation, this would be fetched from the JSON files
+const services = [
+  {
+    slug: "exit-planning-dashboard",
+    title: "Exit Planning Dashboard",
+    description: "Your command center for seamless business transitions and value enhancement with our intuitive dashboard platform.",
+    icon: "LayoutDashboard"
+  },
+  {
+    slug: "holistic-exit-planning",
+    title: "Holistic Exit Planning",
+    description: "A complete approach to business transitions that integrates business strategy, personal life goals, and financial planning.",
+    icon: "CircleDollarSign"
+  },
+  {
+    slug: "exit-options",
+    title: "Exit Options Analysis",
+    description: "Explore all eight exit paths—four internal and four external—to identify the optimal transition strategy for your business.",
+    icon: "GitMerge"
+  },
+  {
+    slug: "transition-team",
+    title: "Building Your Transition Team",
+    description: "Assemble and coordinate the right professionals for your business exit, ensuring all aspects of your transition are addressed.",
+    icon: "Users"
+  },
+  {
+    slug: "five-ds-risk-framework",
+    title: "The 5 Ds Risk Framework",
+    description: "Protect your business value by addressing the five major risks to successful transitions: Death, Disability, Divorce, Disagreement, and Distress.",
+    icon: "Shield"
+  },
+  {
+    slug: "strategic-ai-coach",
+    title: "Strategic AI Coach",
+    description: "Leverage advanced artificial intelligence for personalized exit planning guidance and expertise throughout your transition journey.",
+    icon: "Bot"
+  }
+];
+
+export default function ServicesPage() {
+  // Convert services to the format required by AnimatedList
+  const animatedServiceItems = services.map((service) => {
+    // Access icon component or default to spinner
+    let IconComponent: React.FC<React.HTMLAttributes<SVGElement>>;
+    
+    if (service.icon in Icons) {
+      IconComponent = Icons[service.icon as keyof typeof Icons];
+    } else {
+      IconComponent = Icons.spinner;
+    }
+    
+    return {
+      key: service.slug,
+      content: (
+        <Link href={`/services/${service.slug}`} className="group block">
+          <Card className="h-full transition-all duration-300 hover:shadow-xl group-hover:border-primary/50 relative overflow-hidden">
+            <CardHeader>
+              <div className="flex items-center mb-2">
+                <div className="mr-3 p-2.5 rounded-full bg-primary/10 relative overflow-hidden">
+                  <IconComponent className="w-5 h-5 text-primary relative z-10" />
+                </div>
+                <CardTitle className="text-xl font-bold text-primary">
+                  {service.title}
+                </CardTitle>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <p className="mb-4">{service.description}</p>
+              <Button variant="outline" className="w-full group-hover:bg-primary/5 transition-colors">
+                <span className="relative z-10">Learn More</span>
+              </Button>
+            </CardContent>
+          </Card>
+        </Link>
+      )
+    };
+  });
+
+  return (
+    <div className="min-h-screen flex flex-col">
+      <Header />
+      <main className="flex-grow">
+        {/* Hero Section */}
+        <section className="bg-gradient-to-b from-primary/5 to-background py-16 relative overflow-hidden">
+          <div className="container mx-auto px-4 text-center relative z-10">
+            <BlurFade>
+              <AnimatedGradientText 
+                text="Exit Planning Services" 
+                className="text-4xl md:text-5xl font-bold mb-4"
+                gradientFrom="hsl(var(--primary))"
+                gradientTo="hsl(var(--secondary))"
+                duration={5}
+              />
+            </BlurFade>
+            <BlurFade delay={0.2}>
+              <div className="text-xl text-muted-foreground max-w-3xl mx-auto">
+                <p className="mb-4">
+                  Our comprehensive suite of exit planning services helps business owners at every stage of their transition journey - from initial strategy development to final implementation and value maximization.
+                </p>
+                <Button asChild size="lg">
+                  <a href="#services-grid">Explore Our Services</a>
+                </Button>
+              </div>
+            </BlurFade>
+          </div>
+        </section>
+
+        {/* Services Grid */}
+        <Section id="services-grid" className="py-16">
+          <div className="container mx-auto px-4">
+            <BlurFade className="text-center mb-10">
+              <h2 className="text-3xl font-bold mb-4">Comprehensive Exit Planning Solutions</h2>
+              <p className="text-muted-foreground max-w-2xl mx-auto mt-4">
+                Select any service to learn more about how we can help you maximize business value and achieve your personal transition goals.
+              </p>
+            </BlurFade>
+            
+            <AnimatedList
+              items={animatedServiceItems}
+              className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
+              stagger={0.1}
+              initialDelay={0.2}
+              animateFromSide="bottom"
+            />
+          </div>
+        </Section>
+        
+        {/* CTA Banner */}
+        <Section className="py-16 bg-gradient-to-br from-primary/5 via-primary/10 to-secondary/5">
+          <div className="container mx-auto px-4 text-center">
+            <BlurFade>
+              <h2 className="text-3xl font-bold mb-4">Ready to Plan Your Business Exit?</h2>
+            </BlurFade>
+            <BlurFade delay={0.2}>
+              <p className="text-xl mb-8 max-w-3xl mx-auto">
+                Schedule a consultation with our exit planning experts to discover how we can help you maximize business value and achieve your personal transition goals.
+              </p>
+            </BlurFade>
+            <BlurFade delay={0.4}>
+              <Button asChild size="lg">
+                <a href="/contact">Schedule Consultation</a>
+              </Button>
+            </BlurFade>
+          </div>
+        </Section>
+      </main>
+      <Footer />
+    </div>
+  );
+} 

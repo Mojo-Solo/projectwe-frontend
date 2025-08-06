@@ -1,0 +1,63 @@
+import { NextRequest, NextResponse } from "next/server";
+import { aiService } from "@/lib/ai/ai-service";
+import { getServerSession } from "next-auth/next";
+import { authOptions } from "@/lib/auth";
+import { db } from "@/lib/database";
+import { conversations } from "@/db/schema";
+import { eq, sql } from "drizzle-orm";
+
+// This route must run at request time and in Node.js
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+export async function POST(request: NextRequest) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { messages, conversationId } = await request.json();
+
+    if (!messages || !Array.isArray(messages)) {
+      return NextResponse.json(
+        { error: "Invalid messages format" },
+        { status: 400 },
+      );
+    }
+
+    const response = await aiService.generateChatResponse(messages);
+
+    if (conversationId) {
+      await db
+        .update(conversations)
+        .set({
+          messages: sql`${conversations.messages} || ${JSON.stringify([
+            messages[messages.length - 1],
+            { role: "assistant", content: response.response },
+          ])}`,
+          updatedAt: new Date(),
+        })
+        .where(eq(conversations.id, conversationId));
+    }
+
+    await aiService.trackUsage({
+      type: "chat",
+      tokens: response.tokensUsed,
+      model: "gpt-4-turbo-preview",
+      userId: session.user.id,
+      organizationId: session.user.organizationId,
+    });
+
+    return NextResponse.json({
+      message: response.response,
+      timestamp: new Date(),
+    });
+  } catch (error) {
+    console.error("AI chat error:", error);
+    return NextResponse.json(
+      { error: "Failed to generate response" },
+      { status: 500 },
+    );
+  }
+}

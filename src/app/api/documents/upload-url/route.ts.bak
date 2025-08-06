@@ -1,0 +1,92 @@
+import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth/next";
+import { authOptions } from "@/lib/auth";
+import { z } from "zod";
+import {
+  getSignedUploadUrl,
+  generateDocumentKey,
+} from "@/lib/storage/s3-storage";
+import { v4 as uuidv4 } from "uuid";
+
+const requestSchema = z.object({
+  fileName: z.string().min(1),
+  fileType: z.string().min(1),
+  fileSize: z.number().positive(),
+  documentType: z.enum([
+    "FINANCIAL",
+    "LEGAL",
+    "STRATEGIC",
+    "OPERATIONAL",
+    "OTHER",
+  ]),
+});
+
+const MAX_FILE_SIZE = parseInt(process.env.MAX_FILE_SIZE || "104857600"); // Default 100MB
+
+export async function POST(req: NextRequest) {
+  try {
+    const session = await getServerSession(authOptions);
+
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const body = await req.json();
+    const validation = requestSchema.safeParse(body);
+
+    if (!validation.success) {
+      return NextResponse.json(
+        { error: validation.error.issues[0].message },
+        { status: 400 },
+      );
+    }
+
+    const { fileName, fileType, fileSize, documentType } = validation.data;
+
+    // Validate file size
+    if (fileSize > MAX_FILE_SIZE) {
+      return NextResponse.json(
+        { error: `File size exceeds ${MAX_FILE_SIZE / 1024 / 1024}MB limit` },
+        { status: 400 },
+      );
+    }
+
+    // Generate a temporary document ID for the S3 key
+    const tempDocumentId = uuidv4();
+    const storageKey = generateDocumentKey(
+      session.user.organizationId,
+      tempDocumentId,
+      fileName,
+    );
+
+    // Generate signed upload URL
+    const { uploadUrl, key } = await getSignedUploadUrl(
+      storageKey,
+      fileType,
+      300, // 5 minutes to complete upload
+      {
+        organizationId: session.user.organizationId,
+        userId: session.user.id,
+        documentType,
+        originalName: fileName,
+        tempDocumentId,
+      },
+    );
+
+    return NextResponse.json({
+      uploadUrl,
+      key,
+      tempDocumentId,
+      expiresAt: new Date(Date.now() + 300 * 1000).toISOString(),
+    });
+  } catch (error) {
+    console.error("Error generating upload URL:", error);
+    return NextResponse.json(
+      { error: "Failed to generate upload URL" },
+      { status: 500 },
+    );
+  }
+}
+
+// Route segment config for Next.js 14 App Router
+export const runtime = "nodejs";

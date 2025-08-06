@@ -1,0 +1,122 @@
+import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth/next";
+import { authOptions } from "@/lib/auth";
+import {
+  stripe,
+  getPriceId,
+  STRIPE_CONFIG,
+  STRIPE_METADATA_KEYS,
+} from "@/lib/stripe/config";
+import type { SubscriptionPlan, BillingInterval } from "@/types/billing";
+
+// This route must run at request time and in Node.js
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+export async function POST(req: NextRequest) {
+  try {
+    // Get authenticated user
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const body = await req.json();
+    const { plan, billingInterval, successUrl, cancelUrl, couponCode } = body;
+
+    // Validate plan and interval
+    if (!plan || !billingInterval) {
+      return NextResponse.json(
+        { error: "Missing plan or billing interval" },
+        { status: 400 },
+      );
+    }
+
+    const priceId = getPriceId(
+      plan as SubscriptionPlan,
+      billingInterval as BillingInterval,
+    );
+    if (!priceId) {
+      return NextResponse.json(
+        { error: "Invalid plan or billing interval" },
+        { status: 400 },
+      );
+    }
+
+    // Check if user already has a Stripe customer ID
+    let customerId = (session.user as any).stripeCustomerId;
+
+    if (!customerId) {
+      // Create a new Stripe customer
+      const customer = await stripe.customers.create({
+        email: session.user.email!,
+        metadata: {
+          [STRIPE_METADATA_KEYS.userId]: session.user.id,
+          [STRIPE_METADATA_KEYS.organizationId]:
+            session.user.organizationId || "",
+        },
+      });
+      customerId = customer.id;
+
+      // TODO: Update user with Stripe customer ID in database
+    }
+
+    // Create checkout session parameters
+    const sessionParams: any = {
+      customer: customerId,
+      mode: "subscription",
+      payment_method_types: STRIPE_CONFIG.paymentSettings.paymentMethodTypes,
+      line_items: [
+        {
+          price: priceId,
+          quantity: 1,
+        },
+      ],
+      success_url:
+        successUrl ||
+        `${process.env.NEXT_PUBLIC_APP_URL}/dashboard/billing?success=true`,
+      cancel_url:
+        cancelUrl || `${process.env.NEXT_PUBLIC_APP_URL}/pricing?canceled=true`,
+      automatic_tax: STRIPE_CONFIG.paymentSettings.automaticTax,
+      billing_address_collection:
+        STRIPE_CONFIG.paymentSettings.billingAddressCollection,
+      allow_promotion_codes:
+        STRIPE_CONFIG.paymentSettings.allowPromotionCodes && !couponCode,
+      subscription_data: {
+        trial_period_days: STRIPE_CONFIG.trialPeriodDays,
+        metadata: {
+          [STRIPE_METADATA_KEYS.userId]: session.user.id,
+          [STRIPE_METADATA_KEYS.organizationId]:
+            session.user.organizationId || "",
+          [STRIPE_METADATA_KEYS.plan]: plan,
+          [STRIPE_METADATA_KEYS.billingInterval]: billingInterval,
+        },
+      },
+      metadata: {
+        [STRIPE_METADATA_KEYS.userId]: session.user.id,
+        [STRIPE_METADATA_KEYS.organizationId]:
+          session.user.organizationId || "",
+      },
+    };
+
+    // Add coupon if provided
+    if (couponCode) {
+      sessionParams.discounts = [{ coupon: couponCode }];
+    }
+
+    // Create the checkout session
+    const checkoutSession =
+      await stripe.checkout.sessions.create(sessionParams);
+
+    return NextResponse.json({
+      sessionId: checkoutSession.id,
+      url: checkoutSession.url,
+    });
+  } catch (error) {
+    console.error("Error creating checkout session:", error);
+    return NextResponse.json(
+      { error: "Failed to create checkout session" },
+      { status: 500 },
+    );
+  }
+}

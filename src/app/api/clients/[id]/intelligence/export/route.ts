@@ -1,0 +1,201 @@
+import { isDbAvailable, requireDbAsync } from "@/lib/db-guard";
+import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth/next";
+import { authOptions } from "@/lib/auth";
+import { prisma } from "@/lib/prisma-compat";
+import {
+  ActivityType,
+  ActivityCategory,
+  ActivityStatus,
+  Priority,
+} from "@/types/client";
+
+// This route must run at request time and in Node.js
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+// Note: Simplified to work with current Drizzle schema
+
+export async function POST(
+  req: NextRequest,
+  { params }: { params: { id: string } },
+) {
+  if (!isDbAvailable()) {
+    return NextResponse.json(
+      { error: "Service temporarily unavailable" },
+      { status: 503 },
+    );
+  }
+
+  try {
+    // Authentication
+    const session = await getServerSession(authOptions);
+
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { id: clientId } = params;
+    const body = await req.json();
+    const {
+      format = "pdf",
+      sections = [
+        "overview",
+        "readiness",
+        "valuation",
+        "recommendations",
+        "risks",
+      ],
+      includeCharts = true,
+      includeAnalysis = true,
+      includeRawData = false,
+    } = body;
+
+    // Verify client access
+    const client = await prisma.client.findFirst({
+      where: {
+        id: clientId,
+        organizationId: session.user.organizationId,
+        ...(session.user.role === "ADVISOR"
+          ? {
+              advisorId: session.user.id,
+            }
+          : {}),
+      },
+      include: {
+        advisor: {
+          select: { name: true, email: true },
+        },
+      },
+    });
+    if (!client) {
+      return NextResponse.json({ error: "Client not found" }, { status: 404 });
+    }
+    // Get client intelligence data
+    const intelligenceResponse = await fetch(
+      `${process.env.NEXT_PUBLIC_APP_URL}/api/clients/${clientId}/intelligence`,
+      {
+        headers: {
+          Authorization: `Bearer ${session.user.id}`, // In real implementation, use proper tokens
+        },
+      },
+    );
+    if (!intelligenceResponse.ok) {
+      throw new Error("Failed to fetch intelligence data");
+    }
+    const intelligence = await intelligenceResponse.json();
+    // Create export job (in real implementation, you'd queue this for background processing)
+    const exportJob = {
+      id: `export_${clientId}_${Date.now()}`,
+      clientId,
+      userId: session.user.id,
+      format,
+      sections,
+      includeCharts,
+      includeAnalysis,
+      includeRawData,
+      status: "processing",
+      createdAt: new Date(),
+      estimatedCompletion: new Date(Date.now() + 2 * 60 * 1000), // 2 minutes
+      downloadUrl: null,
+    };
+    // In a real implementation, you would:
+    // 1. Queue the export job for background processing
+    // 2. Generate the PDF/Excel using libraries like puppeteer, jsPDF, or ExcelJS
+    // 3. Store the file in cloud storage (S3, etc.)
+    // 4. Send email notification when ready
+    // 5. Return job ID for status checking
+    // For demo purposes, simulate immediate completion
+    setTimeout(async () => {
+      try {
+        // Simulate file generation and email sending
+        console.log(
+          `Export completed for client ${clientId}, format: ${format}`,
+        );
+
+        // In real implementation, send email notification here
+        // await sendEmailNotification(session.user.email, {
+        //   subject: `Intelligence report ready for ${client.companyName}`,
+        //   downloadUrl: exportJob.downloadUrl
+        // });
+      } catch (error) {
+        console.error("Export job failed:", error);
+      }
+    }, 2000);
+    // Log the export request
+    await prisma.clientActivity.create({
+      data: {
+        clientId,
+        userId: session.user.id,
+        type: ActivityType.NOTE,
+        category: ActivityCategory.REVIEW,
+        title: "Intelligence Report Export Requested",
+        description: `Requested ${format.toUpperCase()} export of intelligence report with sections: ${sections.join(", ")}`,
+        status: ActivityStatus.COMPLETED,
+        taskPriority: Priority.MEDIUM,
+        completedAt: new Date(),
+      },
+    });
+    return NextResponse.json({
+      jobId: exportJob.id,
+      status: "processing",
+      estimatedCompletion: exportJob.estimatedCompletion,
+      message: `Export started. You will receive an email when the ${format.toUpperCase()} report is ready.`,
+      sections: sections,
+      format: format,
+    });
+  } catch (error) {
+    console.error("Error creating export:", error);
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 },
+    );
+  }
+}
+
+// Get export job status
+export async function GET(
+  req: NextRequest,
+  { params }: { params: { id: string } },
+) {
+  if (!isDbAvailable()) {
+    return NextResponse.json(
+      { error: "Service temporarily unavailable" },
+      { status: 503 },
+    );
+  }
+
+  try {
+    // Authentication
+    const session = await getServerSession(authOptions);
+
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { id: clientId } = params;
+    const { searchParams } = new URL(req.url);
+    const jobId = searchParams.get("jobId");
+
+    // In a real implementation, you'd fetch job status from database/queue
+    // For now, return mock data
+    const mockJob = {
+      id: jobId,
+      clientId,
+      status: "completed",
+      format: "pdf",
+      createdAt: new Date(Date.now() - 5 * 60 * 1000), // 5 minutes ago
+      completedAt: new Date(Date.now() - 2 * 60 * 1000), // 2 minutes ago
+      downloadUrl: `/api/clients/${clientId}/intelligence/export/download/${jobId}`,
+      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours from now
+    };
+
+    return NextResponse.json(mockJob);
+  } catch (error) {
+    console.error("Error fetching export status:", error);
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 },
+    );
+  }
+}

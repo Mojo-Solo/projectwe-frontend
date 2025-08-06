@@ -1,0 +1,142 @@
+import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth/next";
+import { authOptions } from "@/lib/auth";
+import { db } from "@/lib/database";
+import { and, eq, gte, lte, inArray, sql } from "drizzle-orm";
+import { z } from "zod";
+import {
+  clientActivities as clientActivitiesSchema,
+  activityTypeEnum,
+  activityCategoryEnum,
+  activityStatusEnum,
+} from "@/db/schema";
+import { clients as clientsSchema } from "@/db/schema";
+import { users as usersSchema } from "@/db/schema";
+import { priorityEnum } from "@/db/schema/enums";
+
+// This route must run at request time and in Node.js
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+const createActivitySchema = z.object({
+  type: z.enum(activityTypeEnum.enumValues),
+  title: z.string().min(1, "Title is required"),
+  description: z.string().optional(),
+  scheduledFor: z
+    .string()
+    .datetime()
+    .optional()
+    .transform((val) => (val ? new Date(val) : undefined)),
+  duration: z.string().optional(),
+  completedAt: z
+    .string()
+    .datetime()
+    .optional()
+    .transform((val) => (val ? new Date(val) : undefined)),
+});
+
+export async function GET(
+  req: NextRequest,
+  { params }: { params: { id: string } },
+) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { id: clientId } = params;
+    const { searchParams } = new URL(req.url);
+
+    const type = searchParams.get("type");
+    const category = searchParams.get("category");
+    const status = searchParams.get("status");
+    const priority = searchParams.get("priority");
+    const isCompleted = searchParams.get("isCompleted") === "true";
+    const userId = searchParams.get("userId");
+    const from = searchParams.get("from");
+    const to = searchParams.get("to");
+    const limit = Math.min(parseInt(searchParams.get("limit") || "50"), 100);
+    const page = parseInt(searchParams.get("page") || "1");
+
+    const where: any = [eq(clientActivitiesSchema.clientId, clientId)];
+    if (type && activityTypeEnum.enumValues.includes(type as any)) {
+      where.push(eq(clientActivitiesSchema.type, type as any));
+    }
+
+    const [activities, totalCount] = await Promise.all([
+      db
+        .select()
+        .from(clientActivitiesSchema)
+        .where(and(...where))
+        .limit(limit)
+        .offset((page - 1) * limit)
+        .orderBy(clientActivitiesSchema.createdAt),
+      db
+        .select({ count: sql<number>`count(*)` })
+        .from(clientActivitiesSchema)
+        .where(and(...where))
+        .then((res) => res[0]?.count || 0),
+    ]);
+
+    const totalPages = Math.ceil(totalCount / limit);
+
+    return NextResponse.json({
+      activities,
+      pagination: {
+        page,
+        limit,
+        total: totalCount,
+        totalPages,
+        hasNext: page < totalPages,
+        hasPrev: page > 1,
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching client activities:", error);
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 },
+    );
+  }
+}
+
+export async function POST(
+  req: NextRequest,
+  { params }: { params: { id: string } },
+) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { id: clientId } = params;
+    const body = await req.json();
+    const validatedData = createActivitySchema.parse(body);
+
+    const [activity] = await db
+      .insert(clientActivitiesSchema)
+      .values({
+        ...validatedData,
+        clientId,
+        userId: session.user.id,
+      })
+      .returning();
+
+    return NextResponse.json(activity, { status: 201 });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return NextResponse.json(
+        { error: "Validation error", issues: error.issues },
+        { status: 400 },
+      );
+    }
+
+    console.error("Error creating client activity:", error);
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 },
+    );
+  }
+}

@@ -1,0 +1,103 @@
+import { isDbAvailable, requireDbAsync } from "@/lib/db-guard";
+import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth/next";
+import { authOptions } from "@/lib/auth";
+import { db } from "@/lib/database";
+import { documents, documentVersions, activities } from "@/db/schema";
+import { and, eq } from "drizzle-orm";
+import {
+  getSignedViewUrl,
+  getSignedDownloadUrl,
+  deleteFromS3,
+  getFileMetadata,
+} from "../s3-utils";
+import { checkDocumentAccess } from "@/lib/document-access";
+
+// This route must run at request time and in Node.js
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+// ... GET and PUT handlers remain the same
+
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: { id: string } },
+) {
+  if (!isDbAvailable()) {
+    return NextResponse.json(
+      { error: "Service temporarily unavailable" },
+      { status: 503 },
+    );
+  }
+
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { hasAccess, document } = await checkDocumentAccess(
+      params.id,
+      session.user.id,
+      "admin",
+    );
+
+    if (!hasAccess || !document) {
+      return NextResponse.json(
+        { error: "Document not found or insufficient permissions" },
+        { status: 404 },
+      );
+    }
+
+    const versions = await db
+      .select({ fileUrl: documentVersions.fileUrl })
+      .from(documentVersions)
+      .where(eq(documentVersions.documentId, params.id));
+
+    if (document.fileUrl) {
+      try {
+        await deleteFromS3(document.fileUrl);
+      } catch (error) {
+        console.error("Failed to delete main document from S3:", error);
+      }
+    }
+
+    for (const version of versions) {
+      if (version.fileUrl) {
+        try {
+          await deleteFromS3(version.fileUrl);
+        } catch (error) {
+          console.warn(
+            "Failed to delete version from S3:",
+            version.fileUrl,
+            error,
+          );
+        }
+      }
+    }
+
+    await db.delete(documents).where(eq(documents.id, params.id));
+
+    await db.insert(activities).values({
+      type: "DOCUMENT_DELETED",
+      description: `Deleted document: ${document.title}`,
+      userId: session.user.id,
+      metadata: {
+        documentId: document.id,
+        documentTitle: document.title,
+        documentType: document.type,
+      },
+    });
+
+    return NextResponse.json({
+      success: true,
+      message: "Document deleted successfully",
+    });
+  } catch (error) {
+    console.error("Error deleting document:", error);
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 },
+    );
+  }
+}

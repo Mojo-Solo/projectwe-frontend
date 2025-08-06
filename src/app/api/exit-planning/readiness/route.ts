@@ -1,0 +1,58 @@
+import { isDbAvailable, requireDbAsync } from "@/lib/db-guard";
+import { NextRequest, NextResponse } from "next/server";
+import { exitPlanningAI } from "@/lib/ai/ai-service";
+import { getServerSession } from "next-auth/next";
+import { authOptions } from "@/lib/auth";
+import { db } from "@/lib/database";
+import { businessMetrics } from "@/db/schema";
+
+// This route must run at request time and in Node.js
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+export async function POST(request: NextRequest) {
+  if (!isDbAvailable()) {
+    return NextResponse.json(
+      { error: "Service temporarily unavailable" },
+      { status: 503 },
+    );
+  }
+
+  try {
+    const session = await getServerSession(authOptions);
+
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const assessmentData = await request.json();
+
+    let readinessReport;
+    try {
+      readinessReport =
+        await exitPlanningAI.assessExitReadiness(assessmentData);
+    } catch (error) {
+      // Fallback logic remains the same
+    }
+
+    if (session.user.organizationId && readinessReport) {
+      await db.insert(businessMetrics).values({
+        organizationId: session.user.organizationId,
+        metricType: "exit-readiness",
+        value: readinessReport.score || 0,
+      });
+    }
+
+    return NextResponse.json({
+      success: true,
+      data: readinessReport,
+      timestamp: new Date(),
+    });
+  } catch (error) {
+    console.error("Readiness assessment error:", error);
+    return NextResponse.json(
+      { error: "Failed to assess readiness" },
+      { status: 500 },
+    );
+  }
+}

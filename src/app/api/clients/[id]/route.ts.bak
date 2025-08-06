@@ -1,0 +1,417 @@
+import { isDbAvailable, requireDbAsync } from '@/lib/db-guard';
+import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth/next";
+import { authOptions } from "@/lib/auth";
+import { prisma } from "@/lib/prisma-compat";
+import { z } from "zod";
+import { clientEvents } from "@/lib/pusher-server";
+import { UpdateClientRequest } from "@/types/client";
+import {
+  companySizeEnum,
+  exitStrategyEnum,
+  exitTimeframeEnum,
+  buyerTypeEnum,
+  clientStatusEnum,
+  engagementLevelEnum,
+  riskProfileEnum,
+  priorityEnum,
+  activityTypeEnum,
+} from "@/db/schema";
+
+const updateClientSchema = z.object({
+  firstName: z.string().optional(),
+  lastName: z.string().optional(),
+  email: z.string().email().optional(),
+  phone: z.string().optional(),
+  companyName: z.string().optional(),
+  jobTitle: z.string().optional(),
+  industry: z.string().optional(),
+  subIndustry: z.string().optional(),
+  companySize: z.enum(companySizeEnum.enumValues).optional(),
+  annualRevenue: z.number().positive().optional(),
+  revenueGrowthRate: z.number().optional(),
+  profitMargin: z.number().optional(),
+  yearsInBusiness: z.number().int().positive().optional(),
+  foundedYear: z
+    .number()
+    .int()
+    .min(1800)
+    .max(new Date().getFullYear())
+    .optional(),
+  companyDescription: z.string().optional(),
+  exitStrategy: z.enum(exitStrategyEnum.enumValues).optional(),
+  exitTimeframe: z.enum(exitTimeframeEnum.enumValues).optional(),
+  exitReason: z.string().optional(),
+  targetValuation: z.number().positive().optional(),
+  minimumPrice: z.number().positive().optional(),
+  preferredBuyerType: z.enum(buyerTypeEnum.enumValues).optional(),
+  advisorId: z.string().optional(),
+  status: z.enum(clientStatusEnum.enumValues).optional(),
+  onboardingCompleted: z.boolean().optional(),
+  engagementLevel: z.enum(engagementLevelEnum.enumValues).optional(),
+  riskProfile: z.enum(riskProfileEnum.enumValues).optional(),
+  lastContactDate: z.string().datetime().optional(),
+  nextFollowUpDate: z.string().datetime().optional(),
+});
+
+export async function GET(
+  req: NextRequest,
+  { params }: { params: { id: string } },
+) {
+  if (!isDbAvailable()) {
+    return NextResponse.json(
+      { error: 'Service temporarily unavailable' },
+      { status: 503 }
+    );
+  }
+  
+  try {
+    // Authentication
+    const session = await getServerSession(authOptions);
+
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { id } = params;
+
+    // Build where clause with access control
+    const where: any = {
+      id,
+      organizationId: session.user.organizationId,
+    };
+
+    // Role-based access control
+    if (session.user.role === "ADVISOR") {
+      where.advisorId = session.user.id;
+    }
+
+    const client = await prisma.client.findFirst({
+      where,
+      include: {
+        primaryAdvisor: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            image: true,
+          },
+        },
+        assessments: {
+          include: {
+            conductedBy: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+              },
+            },
+          },
+          orderBy: { createdAt: "desc" },
+          take: 5, // Latest 5 assessments
+        },
+        documents: {
+          include: {
+            uploadedBy: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+              },
+            },
+          },
+          orderBy: { createdAt: "desc" },
+          take: 10, // Latest 10 documents
+        },
+        activities: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+              },
+            },
+          },
+          orderBy: { createdAt: "desc" },
+          take: 10, // Latest 10 activities
+        },
+        notes: {
+          where: {
+            OR: [
+              { isPrivate: "false" },
+              { userId: session.user.id }, // User can see their own private notes
+            ],
+          },
+          include: {
+            author: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+              },
+            },
+          },
+          orderBy: { createdAt: "desc" },
+          take: 10, // Latest 10 notes
+        },
+        _count: {
+          select: {
+            assessments: true,
+            documents: true,
+            activities: true,
+            notes: true,
+          },
+        },
+      },
+    });
+
+    if (!client) {
+      return NextResponse.json({ error: "Client not found" }, { status: 404 });
+    }
+
+    return NextResponse.json(client);
+  } catch (error) {
+    console.error("Error fetching client:", error);
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 },
+    );
+  }
+}
+
+export async function PUT(
+  req: NextRequest,
+  { params }: { params: { id: string } },
+) {
+  if (!isDbAvailable()) {
+    return NextResponse.json(
+      { error: 'Service temporarily unavailable' },
+      { status: 503 }
+    );
+  }
+  
+  try {
+    // Authentication
+    const session = await getServerSession(authOptions);
+
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { id } = params;
+
+    // Verify client exists and user has access
+    const existingClient = await prisma.client.findFirst({
+      where: {
+        id,
+        organizationId: session.user.organizationId,
+        ...(session.user.role === "ADVISOR"
+          ? {
+              advisorId: session.user.id,
+            }
+          : {}),
+      },
+    });
+
+    if (!existingClient) {
+      return NextResponse.json({ error: "Client not found" }, { status: 404 });
+    }
+
+    const body = await req.json();
+    const validatedData = updateClientSchema.parse(body);
+
+    // Verify advisor assignments if changed
+    if (validatedData.advisorId) {
+      const advisor = await prisma.user.findFirst({
+        where: {
+          id: validatedData.advisorId,
+          organizationId: session.user.organizationId,
+          role: "ADVISOR",
+        },
+      });
+
+      if (!advisor) {
+        return NextResponse.json(
+          { error: "Advisor not found or invalid" },
+          { status: 400 },
+        );
+      }
+    }
+
+    // Secondary advisors no longer supported in schema
+
+    // Check for email conflicts if email is being changed
+    if (validatedData.email && validatedData.email !== existingClient.email) {
+      const emailConflict = await prisma.client.findFirst({
+        where: {
+          email: validatedData.email,
+          organizationId: session.user.organizationId,
+          id: { not: id },
+        },
+      });
+
+      if (emailConflict) {
+        return NextResponse.json(
+          { error: "Client with this email already exists" },
+          { status: 409 },
+        );
+      }
+    }
+
+    // Convert date strings to Date objects
+    const updateData: any = { ...validatedData };
+    if (validatedData.lastContactDate) {
+      updateData.lastContactDate = new Date(validatedData.lastContactDate);
+    }
+    if (validatedData.nextFollowUpDate) {
+      updateData.nextFollowUpDate = new Date(validatedData.nextFollowUpDate);
+    }
+
+    // Update client
+    const updatedClient = await prisma.client.update({
+      where: { id },
+      data: updateData,
+      include: {
+        primaryAdvisor: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            image: true,
+          },
+        },
+      },
+    });
+
+    // Log activity for significant changes
+    const significantChanges = [
+      "status",
+      "onboardingCompleted",
+      "engagementLevel",
+      "advisorId",
+      "exitStrategy",
+      "exitTimeframe",
+      "targetValuation",
+    ];
+
+    const changedFields = Object.keys(validatedData).filter(
+      (key) =>
+        significantChanges.includes(key) &&
+        validatedData[key as keyof typeof validatedData] !==
+          (existingClient as any)[key],
+    );
+
+    if (changedFields.length > 0) {
+      await prisma.clientActivity.create({
+        data: {
+          clientId: id,
+          userId: session.user.id,
+          type: "NOTE_ADDED",
+          title: "Client Information Updated",
+          description: `Updated fields: ${changedFields.join(", ")}`,
+          completedAt: new Date(),
+        },
+      });
+    }
+
+    // Trigger real-time updates
+    try {
+      const advisorIds = updatedClient.advisorId
+        ? [updatedClient.advisorId]
+        : [];
+
+      await clientEvents.triggerClientUpdate(id, updatedClient, advisorIds);
+    } catch (pusherError) {
+      console.error("Failed to trigger real-time update:", pusherError);
+      // Continue anyway - don't fail the request
+    }
+
+    return NextResponse.json(updatedClient);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return NextResponse.json(
+        { error: "Validation error", issues: error.issues },
+        { status: 400 },
+      );
+    }
+
+    console.error("Error updating client:", error);
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 },
+    );
+  }
+}
+
+export async function DELETE(
+  req: NextRequest,
+  { params }: { params: { id: string } },
+) {
+  if (!isDbAvailable()) {
+    return NextResponse.json(
+      { error: 'Service temporarily unavailable' },
+      { status: 503 }
+    );
+  }
+  
+  try {
+    // Authentication
+    const session = await getServerSession(authOptions);
+
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    // Only admins can delete clients
+    if (session.user.role !== "ADMIN") {
+      return NextResponse.json(
+        { error: "Insufficient permissions" },
+        { status: 403 },
+      );
+    }
+
+    const { id } = params;
+
+    // Verify client exists
+    const client = await prisma.client.findFirst({
+      where: {
+        id,
+        organizationId: session.user.organizationId,
+      },
+    });
+
+    if (!client) {
+      return NextResponse.json({ error: "Client not found" }, { status: 404 });
+    }
+
+    // Soft delete by updating status instead of hard delete
+    const deletedClient = await prisma.client.update({
+      where: { id },
+      data: {
+        status: "LOST",
+        // Add deleted flag if needed in schema
+      },
+    });
+
+    // Log deletion activity
+    await prisma.clientActivity.create({
+      data: {
+        clientId: id,
+        userId: session.user.id,
+        type: "NOTE_ADDED",
+        title: "Client Deleted",
+        description: `Client marked as inactive by ${session.user.name}`,
+        completedAt: new Date(),
+      },
+    });
+
+    return NextResponse.json({ message: "Client deleted successfully" });
+  } catch (error) {
+    console.error("Error deleting client:", error);
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 },
+    );
+  }
+}

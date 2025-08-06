@@ -1,0 +1,105 @@
+import { isDbAvailable, requireDbAsync } from "@/lib/db-guard";
+import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth/next";
+import { authOptions } from "@/lib/auth";
+import { db } from "@/lib/database";
+import { tasks, users, projects, activities, notifications } from "@/db/schema";
+import { and, eq, desc } from "drizzle-orm";
+import { z } from "zod";
+import { queueNotification } from "@/lib/email/notification-service";
+
+// This route must run at request time and in Node.js
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+// ... GET handler and schema remain the same
+
+export async function POST(req: NextRequest) {
+  if (!isDbAvailable()) {
+    return NextResponse.json(
+      { error: "Service temporarily unavailable" },
+      { status: 503 },
+    );
+  }
+
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const body = await req.json();
+
+    const taskSchema = z.object({
+      title: z.string().min(1, "Title is required"),
+      description: z.string().optional(),
+      priority: z.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]).default("MEDIUM"),
+      dueDate: z.string().optional(),
+      assigneeId: z.string().optional(),
+      projectId: z.string().optional(),
+    });
+
+    const validation = taskSchema.safeParse(body);
+
+    if (!validation.success) {
+      return NextResponse.json(
+        { error: "Invalid input", details: validation.error.flatten() },
+        { status: 400 },
+      );
+    }
+
+    const { title, description, priority, dueDate, assigneeId, projectId } =
+      validation.data;
+
+    const [task] = await db
+      .insert(tasks)
+      .values({
+        title,
+        description,
+        priority,
+        dueDate: dueDate ? new Date(dueDate) : undefined,
+        organizationId: session.user.organizationId,
+        creatorId: session.user.id,
+        assigneeId,
+        projectId,
+      })
+      .returning();
+
+    await db.insert(activities).values({
+      type: "TASK_CREATED",
+      description: `Created task: ${task.title}`,
+      userId: session.user.id,
+      metadata: {
+        taskId: task.id,
+        taskTitle: task.title,
+      },
+    });
+
+    if (assigneeId && assigneeId !== session.user.id) {
+      await db.insert(notifications).values({
+        type: "TASK_ASSIGNED",
+        title: "New Task Assigned",
+        message: `You have been assigned to: ${task.title}`,
+        userId: assigneeId,
+      });
+
+      await queueNotification({
+        type: "task_assigned",
+        userId: assigneeId,
+        workspaceId: session.user.organizationId,
+        data: {
+          taskId: task.id,
+          taskTitle: task.title,
+        },
+      });
+    }
+
+    return NextResponse.json(task, { status: 201 });
+  } catch (error) {
+    console.error("Database error in POST:", error);
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 },
+    );
+  }
+}

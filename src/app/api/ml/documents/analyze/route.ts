@@ -1,0 +1,71 @@
+import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth/next";
+import { authOptions } from "@/lib/auth";
+import { headers } from "next/headers";
+
+// This route must run at request time and in Node.js
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+const ML_SERVICE_URL = process.env.ML_SERVICE_URL || "http://localhost:8001";
+
+export async function POST(request: NextRequest) {
+  try {
+    // Get user session
+    const session = await getServerSession(authOptions);
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    // Get the form data from the request
+    const formData = await request.formData();
+
+    // Forward the request to the ML service
+    const mlResponse = await fetch(
+      `${ML_SERVICE_URL}/api/v1/documents/analyze`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.accessToken || ""}`,
+          // Don't set Content-Type - let fetch handle it for FormData
+        },
+        body: formData,
+      },
+    );
+
+    if (!mlResponse.ok) {
+      const errorData = await mlResponse
+        .json()
+        .catch(() => ({ error: "ML service error" }));
+      return NextResponse.json(
+        { error: errorData.error || "Document analysis failed" },
+        { status: mlResponse.status },
+      );
+    }
+
+    const result = await mlResponse.json();
+
+    return NextResponse.json(result);
+  } catch (error) {
+    console.error("Document analysis error:", error);
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 },
+    );
+  }
+}
+
+export async function GET() {
+  return NextResponse.json({
+    service: "Document Analysis API",
+    description: "Upload documents for AI-powered analysis and data extraction",
+    endpoints: {
+      "POST /api/ml/documents/analyze": "Analyze a single document",
+      "POST /api/ml/documents/batch": "Analyze multiple documents",
+      "POST /api/ml/documents/financial-extract":
+        "Extract financial data from documents",
+    },
+    supported_formats: ["PDF", "DOCX", "XLSX", "XLS", "PNG", "JPG", "JPEG"],
+    max_file_size: "50MB",
+  });
+}

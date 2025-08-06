@@ -1,0 +1,75 @@
+import { NextResponse } from "next/server";
+import { db } from "@/lib/database";
+import { sql } from "drizzle-orm";
+import { getEmailServiceStatus } from "@/lib/email/email-service";
+
+// Force dynamic rendering to prevent static generation during build
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+export async function GET() {
+  try {
+    // Check database connection
+    const dbCheck = await db
+      .execute(sql`SELECT 1 as ok`)
+      .then(() => ({ status: "healthy", message: "Database connected" }))
+      .catch((error) => ({
+        status: "unhealthy",
+        message: "Database connection failed",
+        error: error.message,
+      }));
+
+    // Check email service status
+    const emailServiceStatus = await getEmailServiceStatus();
+    const emailCheck = {
+      status: emailServiceStatus.hasService ? "healthy" : "degraded",
+      message: emailServiceStatus.hasService
+        ? `Email service operational (${emailServiceStatus.preferredProvider})`
+        : "No email service configured",
+      providers: {
+        resend: emailServiceStatus.resend,
+        mailgun: emailServiceStatus.mailgun,
+      },
+      activeProvider: emailServiceStatus.preferredProvider,
+    };
+
+    // Check other environment variables
+    const envCheck = {
+      database: !!process.env.DATABASE_URL,
+      auth: !!process.env.AUTH_SECRET || !!process.env.NEXTAUTH_SECRET,
+      openai: !!process.env.OPENAI_API_KEY,
+      anthropic: !!process.env.ANTHROPIC_API_KEY,
+      stripe: !!process.env.STRIPE_SECRET_KEY,
+      email: emailServiceStatus.hasService,
+    };
+
+    const allEnvConfigured = Object.values(envCheck).every((v) => v === true);
+
+    return NextResponse.json({
+      status:
+        dbCheck.status === "healthy" && allEnvConfigured
+          ? "healthy"
+          : "degraded",
+      timestamp: new Date().toISOString(),
+      checks: {
+        database: dbCheck,
+        email: emailCheck,
+        environment: {
+          status: allEnvConfigured ? "healthy" : "degraded",
+          details: envCheck,
+        },
+      },
+      version: process.env.npm_package_version || "0.1.0",
+      environment: process.env.NODE_ENV || "development",
+    });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        status: "unhealthy",
+        timestamp: new Date().toISOString(),
+        error: error instanceof Error ? error.message : "Unknown error",
+      },
+      { status: 503 },
+    );
+  }
+}

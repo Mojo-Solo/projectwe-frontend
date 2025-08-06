@@ -1,0 +1,245 @@
+'use client';
+
+import Section from "@/components/section";
+import Footer from "@/components/sections/footer";
+import Header from "@/components/sections/header";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { BarChart3, FileText, Users, Layers, Layout, CheckCircle, ArrowRight } from "lucide-react";
+import Image from "next/image";
+import Link from "next/link";
+
+export default function PlanExecution() {
+  return (
+    <>
+      <Header />
+      <main>
+        <Section
+          title="Plan Execution Dashboard"
+          subtitle="Track, Manage, and Execute Exit Plans"
+          description="Visualize every client's exit planning journey with our comprehensive dashboard. Track milestones, manage documents, and coordinate your team's efforts in one central location."
+        >
+          <div className="mt-12 grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
+            <div>
+              <h2 className="text-2xl font-semibold mb-4">Beyond Static Templates</h2>
+              <p className="text-muted-foreground mb-6">
+                The Plan Execution Dashboard transforms exit planning from disconnected documents into a dynamic, trackable process that keeps everyone aligned and accountable.
+              </p>
+              
+              <div className="space-y-4 mt-6">
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center shrink-0">
+                    <Layout className="w-5 h-5 text-primary" />
+                  </div>
+                  <div>
+                    <h3 className="font-medium">Client-Specific Tracking</h3>
+                    <p className="text-sm text-muted-foreground">
+                      Select a specific client and instantly see where they are in their exit planning journey, with clear visibility into completed steps and upcoming milestones.
+                    </p>
+                  </div>
+                </div>
+                
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center shrink-0">
+                    <Layers className="w-5 h-5 text-primary" />
+                  </div>
+                  <div>
+                    <h3 className="font-medium">Integrated Templates</h3>
+                    <p className="text-sm text-muted-foreground">
+                      Access industry-specific and general exit planning templates that integrate directly with your client&apos;s plan, making document creation seamless and consistent.
+                    </p>
+                  </div>
+                </div>
+                
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center shrink-0">
+                    <Users className="w-5 h-5 text-primary" />
+                  </div>
+                  <div>
+                    <h3 className="font-medium">Team Collaboration</h3>
+                    <p className="text-sm text-muted-foreground">
+                      Coordinate with estate planning attorneys, business attorneys, and other team members directly within the platform, ensuring everyone stays aligned.
+                    </p>
+                  </div>
+                </div>
+                
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center shrink-0">
+                    <BarChart3 className="w-5 h-5 text-primary" />
+                  </div>
+                  <div>
+                    <h3 className="font-medium">Progress Visualization</h3>
+                    <p className="text-sm text-muted-foreground">
+                      Show clients clear visual representations of their exit planning progress, helping them understand the value you&apos;re delivering at every stage.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <div className="rounded-xl overflow-hidden border shadow-md">
+              <Image 
+                src="/dashboard.png" 
+                alt="Plan Execution Dashboard" 
+                width={800}
+                height={500}
+                className="object-cover w-full"
+              />
+            </div>
+          </div>
+          
+          <div className="mt-20">
+            <h2 className="text-2xl font-semibold mb-8 text-center">Comprehensive Exit Templates</h2>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              <Card className="bg-background border shadow-sm">
+                <CardContent className="p-6 space-y-4">
+                  <div className="w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center">
+                    <FileText className="w-6 h-6 text-primary" />
+                  </div>
+                  <h3 className="text-xl font-semibold">Family Business Transition</h3>
+                  <p className="text-muted-foreground text-sm">
+                    Complete templates for family succession planning, including governance structures, next-generation preparation, and conflict resolution frameworks.
+                  </p>
+                </CardContent>
+              </Card>
+              
+              <Card className="bg-background border shadow-sm">
+                <CardContent className="p-6 space-y-4">
+                  <div className="w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center">
+                    <FileText className="w-6 h-6 text-primary" />
+                  </div>
+                  <h3 className="text-xl font-semibold">Strategic Sale</h3>
+                  <p className="text-muted-foreground text-sm">
+                    Templates for preparing businesses for strategic acquisitions, including value enhancement strategies, confidential marketing materials, and buyer qualification tools.
+                  </p>
+                </CardContent>
+              </Card>
+              
+              <Card className="bg-background border shadow-sm">
+                <CardContent className="p-6 space-y-4">
+                  <div className="w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center">
+                    <FileText className="w-6 h-6 text-primary" />
+                  </div>
+                  <h3 className="text-xl font-semibold">Management Buyout</h3>
+                  <p className="text-muted-foreground text-sm">
+                    Comprehensive templates for structuring management buyouts, including financing options, transition timelines, and leadership development frameworks.
+                  </p>
+                </CardContent>
+              </Card>
+              
+              <Card className="bg-background border shadow-sm">
+                <CardContent className="p-6 space-y-4">
+                  <div className="w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center">
+                    <FileText className="w-6 h-6 text-primary" />
+                  </div>
+                  <h3 className="text-xl font-semibold">Employee Ownership</h3>
+                  <p className="text-muted-foreground text-sm">
+                    Templates for transitioning to employee ownership models, including ESOP structures, co-operative models, and stakeholder communication plans.
+                  </p>
+                </CardContent>
+              </Card>
+              
+              <Card className="bg-background border shadow-sm">
+                <CardContent className="p-6 space-y-4">
+                  <div className="w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center">
+                    <FileText className="w-6 h-6 text-primary" />
+                  </div>
+                  <h3 className="text-xl font-semibold">Financial Buyer Acquisition</h3>
+                  <p className="text-muted-foreground text-sm">
+                    Templates for private equity and financial buyer transactions, including preparation checklists, due diligence materials, and post-transaction integration plans.
+                  </p>
+                </CardContent>
+              </Card>
+              
+              <Card className="bg-background border shadow-sm">
+                <CardContent className="p-6 space-y-4">
+                  <div className="w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center">
+                    <FileText className="w-6 h-6 text-primary" />
+                  </div>
+                  <h3 className="text-xl font-semibold">Organized Liquidation</h3>
+                  <p className="text-muted-foreground text-sm">
+                    Templates for structured business wind-downs, ensuring maximum value recovery, proper stakeholder communication, and compliant asset disposition.
+                  </p>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+          
+          <div className="mt-20 bg-primary/10 rounded-xl p-8">
+            <h3 className="text-xl font-semibold mb-6 text-center">How It Works: Building Client-Specific Plans</h3>
+            
+            <div className="max-w-4xl mx-auto">
+              <div className="relative">
+                <div className="absolute left-8 top-0 bottom-0 w-0.5 bg-primary/20"></div>
+                
+                <div className="space-y-12">
+                  <div className="relative flex items-start gap-6">
+                    <div className="absolute left-8 top-8 w-3 h-3 rounded-full bg-primary -translate-x-[7px]"></div>
+                    <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center shrink-0">
+                      <span className="text-xl font-bold text-primary">1</span>
+                    </div>
+                    <div className="pt-3">
+                      <h4 className="text-lg font-medium mb-2">Select Your Client</h4>
+                      <p className="text-muted-foreground">
+                        Choose from your client list or create a new client profile with basic information.
+                      </p>
+                    </div>
+                  </div>
+                  
+                  <div className="relative flex items-start gap-6">
+                    <div className="absolute left-8 top-8 w-3 h-3 rounded-full bg-primary -translate-x-[7px]"></div>
+                    <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center shrink-0">
+                      <span className="text-xl font-bold text-primary">2</span>
+                    </div>
+                    <div className="pt-3">
+                      <h4 className="text-lg font-medium mb-2">Choose Exit Strategy Templates</h4>
+                      <p className="text-muted-foreground">
+                        Select from our library of templates based on your client&apos;s preferred exit strategies and industry.
+                      </p>
+                    </div>
+                  </div>
+                  
+                  <div className="relative flex items-start gap-6">
+                    <div className="absolute left-8 top-8 w-3 h-3 rounded-full bg-primary -translate-x-[7px]"></div>
+                    <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center shrink-0">
+                      <span className="text-xl font-bold text-primary">3</span>
+                    </div>
+                    <div className="pt-3">
+                      <h4 className="text-lg font-medium mb-2">Customize Your Plan</h4>
+                      <p className="text-muted-foreground">
+                        Tailor the templates to your client&apos;s unique situation, adding or removing elements to create a personalized roadmap.
+                      </p>
+                    </div>
+                  </div>
+                  
+                  <div className="relative flex items-start gap-6">
+                    <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center shrink-0">
+                      <span className="text-xl font-bold text-primary">4</span>
+                    </div>
+                    <div className="pt-3">
+                      <h4 className="text-lg font-medium mb-2">Track Progress & Share Updates</h4>
+                      <p className="text-muted-foreground">
+                        Monitor completion of each milestone, document progress, and share updates with your client and team members.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <div className="mt-16 text-center">
+            <Button asChild size="lg" className="mt-8">
+              <Link href="/signup">
+                Start Building Exit Plans
+                <ArrowRight className="ml-2 h-4 w-4" />
+              </Link>
+            </Button>
+          </div>
+        </Section>
+      </main>
+      <Footer />
+    </>
+  );
+} 

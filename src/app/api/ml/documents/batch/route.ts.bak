@@ -1,0 +1,71 @@
+import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth/next";
+import { authOptions } from "@/lib/auth";
+
+const ML_SERVICE_URL = process.env.ML_SERVICE_URL || "http://localhost:8001";
+
+export async function POST(request: NextRequest) {
+  try {
+    // Get user session
+    const session = await getServerSession(authOptions);
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    // Get the form data from the request
+    const formData = await request.formData();
+
+    // Validate file count
+    const files = formData.getAll("files");
+    if (files.length === 0) {
+      return NextResponse.json({ error: "No files provided" }, { status: 400 });
+    }
+
+    if (files.length > 20) {
+      return NextResponse.json(
+        { error: "Maximum 20 files allowed per batch" },
+        { status: 400 },
+      );
+    }
+
+    // Forward the request to the ML service
+    const mlResponse = await fetch(
+      `${ML_SERVICE_URL}/api/v1/documents/analyze/batch`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.accessToken || ""}`,
+        },
+        body: formData,
+      },
+    );
+
+    if (!mlResponse.ok) {
+      const errorData = await mlResponse
+        .json()
+        .catch(() => ({ error: "ML service error" }));
+      return NextResponse.json(
+        { error: errorData.error || "Batch document analysis failed" },
+        { status: mlResponse.status },
+      );
+    }
+
+    const result = await mlResponse.json();
+
+    // Add some Next.js specific metadata
+    const enhancedResult = {
+      ...result,
+      processed_at: new Date().toISOString(),
+      user_id: session.user.id,
+      organization_id: session.user.organizationId,
+    };
+
+    return NextResponse.json(enhancedResult);
+  } catch (error) {
+    console.error("Batch document analysis error:", error);
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 },
+    );
+  }
+}

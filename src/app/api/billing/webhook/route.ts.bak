@@ -1,0 +1,325 @@
+import { isDbAvailable, requireDbAsync } from '@/lib/db-guard';
+import { NextRequest, NextResponse } from "next/server";
+import { headers } from "next/headers";
+import Stripe from "stripe";
+import { stripe, STRIPE_CONFIG } from "@/lib/stripe/config";
+import { db } from "@/lib/database";
+import {
+  subscriptions,
+  payments,
+  paymentMethods,
+  userFeatures,
+  users,
+} from "@/db/schema";
+import { eq, and, sql } from "drizzle-orm";
+import {
+  sendSubscriptionWelcome,
+  sendPlanChangeNotification,
+  sendSubscriptionCancellation,
+  sendPaymentReceipt,
+  sendPaymentFailure,
+  sendCheckoutConfirmation,
+} from "@/lib/email/email-service";
+import { publishEvent } from "@/lib/events/publisher";
+
+const webhookHandlers: Record<string, (event: Stripe.Event) => Promise<void>> =
+  {
+    "customer.subscription.created": handleSubscriptionCreated,
+    "customer.subscription.updated": handleSubscriptionUpdated,
+    "customer.subscription.deleted": handleSubscriptionDeleted,
+    "invoice.payment_succeeded": handleInvoicePaymentSucceeded,
+    "invoice.payment_failed": handleInvoicePaymentFailed,
+    "checkout.session.completed": handleCheckoutSessionCompleted,
+    "customer.updated": handleCustomerUpdated,
+    "payment_method.attached": handlePaymentMethodAttached,
+    "payment_method.detached": handlePaymentMethodDetached,
+  };
+
+// ... POST handler remains the same
+
+async function handleSubscriptionCreated(event: Stripe.Event) {
+  const subscription = event.data.object as Stripe.Subscription;
+  const { userId, organizationId } = subscription.metadata;
+
+  await db.insert(subscriptions).values({
+    userId,
+    organizationId,
+    stripeCustomerId: subscription.customer as string,
+    stripeSubscriptionId: subscription.id,
+    stripePriceId: subscription.items.data[0].price.id,
+    status: subscription.status as
+      | "active"
+      | "canceled"
+      | "past_due"
+      | "unpaid",
+    cancelAtPeriodEnd: subscription.cancel_at_period_end,
+    currentPeriodStart: new Date(subscription.current_period_start * 1000),
+    currentPeriodEnd: new Date(subscription.current_period_end * 1000),
+  });
+
+  // ... other logic
+}
+
+async function handleSubscriptionUpdated(event: Stripe.Event) {
+  const subscription = event.data.object as Stripe.Subscription;
+
+  try {
+    await db
+      .update(subscriptions)
+      .set({
+        status: subscription.status as
+          | "active"
+          | "canceled"
+          | "past_due"
+          | "unpaid",
+        cancelAtPeriodEnd: subscription.cancel_at_period_end,
+        currentPeriodStart: new Date(subscription.current_period_start * 1000),
+        currentPeriodEnd: new Date(subscription.current_period_end * 1000),
+      })
+      .where(eq(subscriptions.stripeSubscriptionId, subscription.id));
+
+    await publishEvent({
+      type: "subscription_updated",
+      data: {
+        subscriptionId: subscription.id,
+        status: subscription.status,
+      },
+    });
+  } catch (error) {
+    console.error("Error handling subscription updated:", error);
+    throw error;
+  }
+}
+
+async function handleSubscriptionDeleted(event: Stripe.Event) {
+  const subscription = event.data.object as Stripe.Subscription;
+
+  try {
+    await db
+      .update(subscriptions)
+      .set({
+        status: "canceled",
+      })
+      .where(eq(subscriptions.stripeSubscriptionId, subscription.id));
+
+    await publishEvent({
+      type: "subscription_canceled",
+      data: {
+        subscriptionId: subscription.id,
+      },
+    });
+  } catch (error) {
+    console.error("Error handling subscription deleted:", error);
+    throw error;
+  }
+}
+
+async function handleInvoicePaymentSucceeded(event: Stripe.Event) {
+  const invoice = event.data.object as Stripe.Invoice;
+
+  try {
+    // Record payment
+    const subscriptionResult = await db
+      .select()
+      .from(subscriptions)
+      .where(
+        eq(subscriptions.stripeSubscriptionId, invoice.subscription as string),
+      )
+      .limit(1);
+    const subscription = subscriptionResult[0];
+
+    if (subscription) {
+      await db.insert(payments).values({
+        invoiceId: invoice.id,
+        subscriptionId: subscription.id,
+        amount: invoice.amount_paid,
+        currency: invoice.currency,
+        status: "succeeded",
+        paidAt: new Date(),
+      });
+    }
+
+    await publishEvent({
+      type: "payment_succeeded",
+      data: {
+        invoiceId: invoice.id,
+        amount: invoice.amount_paid,
+      },
+    });
+  } catch (error) {
+    console.error("Error handling payment succeeded:", error);
+    throw error;
+  }
+}
+
+async function handleInvoicePaymentFailed(event: Stripe.Event) {
+  const invoice = event.data.object as Stripe.Invoice;
+
+  try {
+    await publishEvent({
+      type: "payment_failed",
+      data: {
+        invoiceId: invoice.id,
+        amount: invoice.amount_due,
+        customerEmail: invoice.customer_email,
+      },
+    });
+  } catch (error) {
+    console.error("Error handling payment failed:", error);
+    throw error;
+  }
+}
+
+async function handleCheckoutSessionCompleted(event: Stripe.Event) {
+  const session = event.data.object as Stripe.Checkout.Session;
+
+  try {
+    await publishEvent({
+      type: "checkout_completed",
+      data: {
+        sessionId: session.id,
+        customerId: session.customer,
+        subscriptionId: session.subscription,
+      },
+    });
+  } catch (error) {
+    console.error("Error handling checkout completed:", error);
+    throw error;
+  }
+}
+
+async function handleCustomerUpdated(event: Stripe.Event) {
+  const customer = event.data.object as Stripe.Customer;
+
+  try {
+    await publishEvent({
+      type: "customer_updated",
+      data: {
+        customerId: customer.id,
+        email: customer.email,
+      },
+    });
+  } catch (error) {
+    console.error("Error handling customer updated:", error);
+    throw error;
+  }
+}
+
+async function handlePaymentMethodAttached(event: Stripe.Event) {
+  const paymentMethod = event.data.object as Stripe.PaymentMethod;
+
+  try {
+    // Find user by stripe customer ID
+    const subscriptionResult = await db
+      .select()
+      .from(subscriptions)
+      .where(
+        eq(subscriptions.stripeCustomerId, paymentMethod.customer as string),
+      )
+      .limit(1);
+    const subscription = subscriptionResult[0];
+
+    if (subscription && paymentMethod.card) {
+      await db.insert(paymentMethods).values({
+        userId: subscription.userId,
+        type: paymentMethod.type,
+        last4: paymentMethod.card.last4,
+        brand: paymentMethod.card.brand,
+        expiryMonth: paymentMethod.card.exp_month,
+        expiryYear: paymentMethod.card.exp_year,
+        isDefault: false,
+      });
+    }
+
+    await publishEvent({
+      type: "payment_method_attached",
+      data: {
+        paymentMethodId: paymentMethod.id,
+        customerId: paymentMethod.customer,
+      },
+    });
+  } catch (error) {
+    console.error("Error handling payment method attached:", error);
+    throw error;
+  }
+}
+
+async function handlePaymentMethodDetached(event: Stripe.Event) {
+  const paymentMethod = event.data.object as Stripe.PaymentMethod;
+
+  try {
+    // Find subscription to get userId
+    const subscriptionResult = await db
+      .select()
+      .from(subscriptions)
+      .where(
+        eq(subscriptions.stripeCustomerId, paymentMethod.customer as string),
+      )
+      .limit(1);
+    const subscription = subscriptionResult[0];
+
+    if (subscription && paymentMethod.card) {
+      await db
+        .delete(paymentMethods)
+        .where(
+          and(
+            eq(paymentMethods.userId, subscription.userId),
+            eq(paymentMethods.last4, paymentMethod.card.last4),
+            eq(paymentMethods.brand, paymentMethod.card.brand),
+          ),
+        );
+    }
+
+    await publishEvent({
+      type: "payment_method_detached",
+      data: {
+        paymentMethodId: paymentMethod.id,
+      },
+    });
+  } catch (error) {
+    console.error("Error handling payment method detached:", error);
+    throw error;
+  }
+}
+
+export async function POST(request: NextRequest) {
+  if (!isDbAvailable()) {
+    return NextResponse.json(
+      { error: 'Service temporarily unavailable' },
+      { status: 503 }
+    );
+  }
+  
+  try {
+    const body = await request.text();
+    const signature = headers().get("stripe-signature");
+
+    if (!signature) {
+      return NextResponse.json(
+        { error: "Missing stripe-signature header" },
+        { status: 400 },
+      );
+    }
+
+    const event = stripe.webhooks.constructEvent(
+      body,
+      signature,
+      STRIPE_CONFIG.webhookSecret,
+    );
+
+    const handler = webhookHandlers[event.type];
+    if (handler) {
+      await handler(event);
+    } else {
+      console.log(`Unhandled webhook event: ${event.type}`);
+    }
+
+    return NextResponse.json({ received: true });
+  } catch (error: any) {
+    console.error("Webhook error:", error);
+    return NextResponse.json(
+      { error: "Webhook handler failed", details: error.message },
+      { status: 400 },
+    );
+  }
+}

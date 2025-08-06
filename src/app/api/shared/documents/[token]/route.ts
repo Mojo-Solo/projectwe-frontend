@@ -1,0 +1,127 @@
+import { isDbAvailable, requireDbAsync } from '@/lib/db-guard';
+import { NextRequest, NextResponse } from "next/server";
+import { db } from "@/lib/database";
+import { documentShares, documents, users, organizations } from "@/db/schema";
+import { documentActivities } from "@/db/schema/document";
+import { activityLogs } from "@/db/schema/workspace";
+import { eq, and } from "drizzle-orm";
+import { getSignedFileUrl } from "@/lib/storage";
+
+export async function GET(
+  request: NextRequest,
+  { params }: { params: { token: string } },
+) {
+  if (!isDbAvailable()) {
+    return NextResponse.json(
+      { error: 'Service temporarily unavailable' },
+      { status: 503 }
+    );
+  }
+  
+  try {
+    const { token } = params;
+
+    // Find the share link
+    const [shareLink] = await db
+      .select({
+        id: documentShares.id,
+        documentId: documentShares.documentId,
+        shareToken: documentShares.shareToken,
+        permission: documentShares.permission,
+        password: documentShares.password,
+        expiresAt: documentShares.expiresAt,
+        maxViews: documentShares.maxViews,
+        viewCount: documentShares.viewCount,
+        document: {
+          id: documents.id,
+          title: documents.title,
+          fileUrl: documents.fileUrl,
+          mimeType: documents.mimeType,
+          fileSize: documents.fileSize,
+          organizationId: documents.organizationId,
+        },
+        uploadedBy: {
+          id: users.id,
+          name: users.name,
+          email: users.email,
+        },
+        organization: {
+          id: organizations.id,
+          name: organizations.name,
+        },
+      })
+      .from(documentShares)
+      .leftJoin(documents, eq(documentShares.documentId, documents.id))
+      .leftJoin(users, eq(documents.uploadedById, users.id))
+      .leftJoin(organizations, eq(documents.organizationId, organizations.id))
+      .where(eq(documentShares.shareToken, token))
+      .limit(1);
+
+    if (!shareLink) {
+      return NextResponse.json(
+        { error: "Share link not found" },
+        { status: 404 },
+      );
+    }
+
+    // Check if link has expired
+    if (shareLink.expiresAt && new Date() > new Date(shareLink.expiresAt)) {
+      return NextResponse.json(
+        { error: "This share link has expired" },
+        { status: 404 },
+      );
+    }
+
+    // Check view count limit
+    if (shareLink.maxViews && shareLink.viewCount >= shareLink.maxViews) {
+      return NextResponse.json(
+        { error: "This share link has reached its view limit" },
+        { status: 403 },
+      );
+    }
+
+    // Increment view count
+    await db
+      .update(documentShares)
+      .set({ 
+        viewCount: shareLink.viewCount + 1,
+        updatedAt: new Date(),
+      })
+      .where(eq(documentShares.id, shareLink.id));
+
+    // Log the view event
+    await db.insert(documentActivities).values({
+      documentId: shareLink.documentId,
+      action: "shared_view",
+      details: {
+        token: token.substring(0, 8) + "...",
+        viewCount: shareLink.viewCount + 1,
+      },
+    });
+
+    // Generate signed URLs for viewing and downloading
+    const viewUrl = shareLink.document?.fileUrl ? await getSignedFileUrl(shareLink.document.fileUrl) : null;
+    const downloadUrl = shareLink.permission === "EDIT" && shareLink.document?.fileUrl
+      ? await getSignedFileUrl(shareLink.document.fileUrl)
+      : null;
+
+    return NextResponse.json({
+      id: shareLink.document?.id,
+      name: shareLink.document?.title,
+      mimeType: shareLink.document?.mimeType,
+      fileSize: shareLink.document?.fileSize,
+      viewUrl,
+      downloadUrl,
+      permission: shareLink.permission,
+      expiresAt: shareLink.expiresAt,
+      ownerName: shareLink.uploadedBy?.name || shareLink.uploadedBy?.email || "Unknown",
+      organizationName: shareLink.organization?.name || "Unknown Organization",
+    });
+  } catch (error) {
+    console.error("Error accessing shared document:", error);
+    return NextResponse.json(
+      { error: "Failed to access document" },
+      { status: 500 },
+    );
+  }
+}

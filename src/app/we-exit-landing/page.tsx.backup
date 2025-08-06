@@ -1,0 +1,69 @@
+import Blog from "@/components/sections/blog";
+import CTA from "@/components/sections/cta";
+import FAQ from "@/components/sections/faq";
+import Features from "@/components/sections/features";
+import Footer from "@/components/sections/footer";
+import Header from "@/components/sections/header";
+import Hero from "@/components/sections/hero";
+import HowItWorks from "@/components/sections/how-it-works";
+import Problem from "@/components/sections/problem";
+import Section from "@/components/section";
+import Solution from "@/components/sections/solution";
+import TestimonialsCarousel from "@/components/sections/testimonials-carousel";
+
+export default function WEExitLandingPage() {
+  return (
+    <main>
+      <Header />
+      <Hero />
+      
+      <Section
+        title="Problem"
+        subtitle="Exit planning is costing you time, money, and momentum"
+        description="Without the right tools, exit planning becomes a fragmented, inefficient process that frustrates both advisors and clients."
+      >
+        <Problem />
+      </Section>
+      
+      <Section
+        title="Solution"
+        subtitle="Your firm's collective exit planning intelligence"
+        description="Exit Planning AI turns your exit planning expertise into an always-accessible resource, ensuring new advisors don't just start—they contribute. And fast. No searching. No gaps. Just instant expertise."
+      >
+        <Solution />
+      </Section>
+      
+      <Section
+        title="How it works"
+        subtitle="Intelligent. Streamlined. Effective."
+      >
+        <HowItWorks />
+      </Section>
+      
+      <Section
+        title="Features"
+        subtitle="Revolutionize Your Exit Planning Practice"
+      >
+        <Features />
+      </Section>
+      
+      <Section
+        title="Testimonials"
+        subtitle="What Our Clients Say"
+        description="Hear from business owners and advisors who have transformed their exit planning process with our platform."
+      >
+        <TestimonialsCarousel />
+      </Section>
+      
+      <Section
+        title="Join Now"
+        subtitle="A Clearly Better Way to Plan Exits"
+        description="Our platform doesn't just simplify your exit planning workload; it revolutionizes the way you build client relationships and achieve outcomes."
+      >
+        <CTA />
+      </Section>
+      
+      <Footer />
+    </main>
+  );
+} 

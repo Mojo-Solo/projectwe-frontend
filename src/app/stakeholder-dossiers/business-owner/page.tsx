@@ -1,0 +1,91 @@
+
+"use client";
+
+interface BusinessOwnerPageProps {
+  className?: string;
+  children?: React.ReactNode;
+}
+
+import React from "react";
+import { AnimatedGradientText } from "@/components/magicui/animated-gradient-text";
+import { BorderBeam } from "@/components/magicui/border-beam";
+import { Card, CardContent } from "@/components/ui/card";
+import {
+  RadarChart,
+  PolarGrid,
+  PolarAngleAxis,
+  Radar,
+  ResponsiveContainer,
+} from "recharts";
+import AnimatedList from "@/components/magicui/animated-list";
+import { useState } from "react";
+
+export const dynamic = 'force-dynamic';
+
+const data = [
+  { subject: "Leadership", A: 120, fullMark: 150 },
+  { subject: "Strategy", A: 98, fullMark: 150 },
+  { subject: "Execution", A: 86, fullMark: 150 },
+  { subject: "Innovation", A: 99, fullMark: 150 },
+  { subject: "Communication", A: 85, fullMark: 150 },
+];
+
+export default function BusinessOwnerPage() {
+  const [needs] = useState([
+    { key: "1", content: "Access to strategic insights" },
+    { key: "2", content: "Improved communication tools" },
+    { key: "3", content: "Enhanced decision-making support" },
+  ]);
+
+  return (
+    <div className="container mx-auto px-4 py-12">
+      {/* Hero Section */}
+      <div className="text-center mb-16">
+        <div className="relative inline-block p-6">
+          <BorderBeam className="inline-block" />
+          <h1 className="font-bold text-5xl leading-tight relative z-10">
+            <AnimatedGradientText text="Business Owner" />
+          </h1>
+        </div>
+        <p className="text-xl text-gray-600 dark:text-gray-300 max-w-3xl mx-auto">
+          Planning exit, tracking progress, engaging with advisors
+        </p>
+      </div>
+
+      {/* Overview Section */}
+      <Card className="mb-12">
+        <CardContent>
+          <h2 className="text-2xl font-bold mb-4">Overview</h2>
+          <p>
+            The business owner is the end-user or client who is planning their
+            exit, tracking progress, and engaging with advisors.
+          </p>
+        </CardContent>
+      </Card>
+
+      {/* Profile Section */}
+      <div className="mb-12">
+        <h2 className="text-2xl font-bold mb-4">Profile</h2>
+        <ResponsiveContainer width="100%" height={300}>
+          <RadarChart data={data}>
+            <PolarGrid />
+            <PolarAngleAxis dataKey="subject" />
+            <Radar
+              name="Business Owner"
+              dataKey="A"
+              stroke="#8884d8"
+              fill="#8884d8"
+              fillOpacity={0.6}
+            />
+          </RadarChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* Platform Needs Section */}
+      <div className="mb-12">
+        <h2 className="text-2xl font-bold mb-4">Platform Needs</h2>
+        <AnimatedList items={needs} />
+      </div>
+    </div>
+  );
+}

@@ -1,0 +1,56 @@
+import React from "react";
+
+// Magic UI Components
+import FlickeringGrid from "@/components/magicui/flickering-grid";
+import { Confetti } from "@/components/magicui/confetti";
+import { BorderBeam } from "@/components/magicui/border-beam";
+import Marquee from "@/components/magicui/marquee";
+import { AnimatedGradientText } from "@/components/magicui/animated-gradient-text";
+
+export default function SymbiosisPage() {
+  return (
+    <div className="relative min-h-screen bg-black text-white overflow-hidden">
+      {/* Animated Background */}
+      <FlickeringGrid className="absolute inset-0 opacity-40" />
+
+      {/* Confetti effect (fired once on mount for a celebratory "pop") */}
+      <Confetti fireOnce={true} className="pointer-events-none" />
+
+      {/* Main Content Container */}
+      <div className="relative z-10 flex flex-col items-center justify-center min-h-screen p-4">
+        {/* Title / Hero Section */}
+        <div className="mb-12 text-center max-w-3xl mx-auto">
+          {/* Example: A large heading with an animated border highlight */}
+          <div className="relative inline-block p-6">
+            <BorderBeam className="inline-block" />
+            <h1 className="font-bold text-5xl leading-tight relative z-10">
+              Machine + Human =
+              <AnimatedGradientText
+                text="huYman"
+                className="block text-6xl sm:text-7xl mt-2"
+                gradientFrom="#ff00d4"
+                gradientTo="#ffc800"
+                duration={6} // seconds for full gradient cycle
+              />
+            </h1>
+          </div>
+          <p className="mt-4 text-lg text-gray-300">
+            Experience the synergy of advanced intelligence and human creativity in a simple yet
+            elegant visual narrative.
+          </p>
+        </div>
+
+        {/* Marquee as a rolling banner of synergy slogans */}
+        <Marquee
+          className="max-w-screen-lg w-full text-xl font-medium text-pink-400"
+          speed={60}
+          gradient={false}
+        >
+          <span className="mx-6">Symbiosis in Action</span>
+          <span className="mx-6">AI &amp; Humanity = huYman</span>
+          <span className="mx-6">Collaborate. Innovate. Celebrate.</span>
+        </Marquee>
+      </div>
+    </div>
+  );
+} 

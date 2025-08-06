@@ -1,0 +1,211 @@
+'use client'
+
+import { useEffect, useState } from 'react'
+import { useAuth } from '@/hooks/useAuth'
+import { Loader2 } from 'lucide-react'
+import { DashboardHeader } from '@/components/dashboard/DashboardHeader'
+import { MetricsGrid } from '@/components/dashboard/MetricsGrid'
+import { ExitReadinessGauge } from '@/components/dashboard/ExitReadinessGauge'
+import { ValuationTracker } from '@/components/dashboard/ValuationTracker'
+import { TimelineProgress } from '@/components/dashboard/TimelineProgress'
+import { TaskOverview } from '@/components/dashboard/TaskOverview'
+import { DocumentStatus } from '@/components/dashboard/DocumentStatus'
+import { AIInsightsFeed } from '@/components/dashboard/AIInsightsFeed'
+import { MarketConditions } from '@/components/dashboard/MarketConditions'
+import { TeamActivity } from '@/components/dashboard/TeamActivity'
+import { QuickActions } from '@/components/dashboard/QuickActions'
+import { NotificationCenter } from '@/components/dashboard/NotificationCenter'
+import { DashboardCustomizer } from '@/components/dashboard/DashboardCustomizer'
+
+interface DashboardData {
+  exitPlan?: any
+  tasks?: any[]
+  documents?: any[]
+  teamActivity?: any[]
+  marketData?: any
+  insights?: any[]
+}
+
+export default function Dashboard() {
+  const { user, workspaces, isLoading: authLoading } = useAuth()
+  const [dashboardData, setDashboardData] = useState<DashboardData>({})
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [customLayout, setCustomLayout] = useState<string[]>([
+    'metrics',
+    'readiness',
+    'valuation',
+    'timeline',
+    'tasks',
+    'documents',
+    'insights',
+    'market',
+    'team',
+    'actions'
+  ])
+
+  useEffect(() => {
+    if (!authLoading && user) {
+      fetchDashboardData()
+    }
+  }, [authLoading, user])
+
+  const fetchDashboardData = async () => {
+    try {
+      setIsLoading(true)
+      setError(null)
+
+      // Fetch all dashboard data in parallel
+      const [
+        exitPlanRes,
+        tasksRes,
+        documentsRes,
+        teamActivityRes,
+        marketRes,
+        insightsRes
+      ] = await Promise.all([
+        fetch('/api/exit-planning/plans').then(res => res.json()),
+        fetch('/api/tasks').then(res => res.json()),
+        fetch('/api/documents').then(res => res.json()),
+        fetch('/api/team/activity').then(res => res.json()),
+        fetch('/api/exit-planning/market-conditions').then(res => res.json()),
+        fetch('/api/ai/insights').then(res => res.json())
+      ])
+
+      setDashboardData({
+        exitPlan: exitPlanRes.data?.[0] || null, // Get the most recent exit plan
+        tasks: tasksRes.data || [],
+        documents: documentsRes.data || [],
+        teamActivity: teamActivityRes.data || [],
+        marketData: marketRes.data || {},
+        insights: insightsRes.data || []
+      })
+    } catch (err) {
+      console.error('Failed to fetch dashboard data:', err)
+      setError('Failed to load dashboard data. Please try refreshing.')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleLayoutChange = (newLayout: string[]) => {
+    setCustomLayout(newLayout)
+    // Save to user preferences
+    localStorage.setItem('dashboardLayout', JSON.stringify(newLayout))
+  }
+
+  if (authLoading || isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="container mx-auto px-4 py-8">
+        <div className="bg-destructive/10 text-destructive p-4 rounded-lg">
+          {error}
+        </div>
+      </div>
+    )
+  }
+
+  const renderComponent = (componentKey: string) => {
+    switch (componentKey) {
+      case 'metrics':
+        return <MetricsGrid key="metrics" className="col-span-full" />
+      case 'readiness':
+        return (
+          <ExitReadinessGauge 
+            key="readiness"
+            readinessScore={dashboardData.exitPlan?.readinessScore || 0}
+            dimensions={dashboardData.exitPlan?.readinessData || {}}
+          />
+        )
+      case 'valuation':
+        return (
+          <ValuationTracker 
+            key="valuation"
+            currentValuation={dashboardData.exitPlan?.valuation || 0}
+            historicalData={dashboardData.exitPlan?.valuationHistory || []}
+          />
+        )
+      case 'timeline':
+        return (
+          <TimelineProgress 
+            key="timeline"
+            exitPlanId={dashboardData.exitPlan?.id}
+            milestones={dashboardData.exitPlan?.milestones || []}
+          />
+        )
+      case 'tasks':
+        return (
+          <TaskOverview 
+            key="tasks"
+            tasks={dashboardData.tasks || []}
+          />
+        )
+      case 'documents':
+        return (
+          <DocumentStatus 
+            key="documents"
+            documents={dashboardData.documents || []}
+          />
+        )
+      case 'insights':
+        return (
+          <AIInsightsFeed 
+            key="insights"
+            insights={dashboardData.insights || []}
+          />
+        )
+      case 'market':
+        return (
+          <MarketConditions 
+            key="market"
+            marketData={dashboardData.marketData}
+          />
+        )
+      case 'team':
+        return (
+          <TeamActivity 
+            key="team"
+            activities={dashboardData.teamActivity || []}
+          />
+        )
+      case 'actions':
+        return (
+          <QuickActions 
+            key="actions"
+            exitPlanId={dashboardData.exitPlan?.id}
+          />
+        )
+      default:
+        return null
+    }
+  }
+
+  return (
+    <div className="container mx-auto px-4 py-8">
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-3xl font-bold">
+          Welcome back, {user?.full_name || user?.email}
+        </h1>
+        <div className="flex gap-2">
+          <NotificationCenter />
+          <DashboardCustomizer 
+            layout={customLayout}
+            onLayoutChange={handleLayoutChange}
+          />
+        </div>
+      </div>
+
+      {/* Dashboard Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {customLayout.map(component => renderComponent(component))}
+      </div>
+    </div>
+  )
+}

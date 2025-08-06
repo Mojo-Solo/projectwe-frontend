@@ -1,0 +1,65 @@
+import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth/next";
+import { authOptions } from "@/lib/auth";
+import { stripe } from "@/lib/stripe/config";
+import type { Invoice } from "@/types/billing";
+
+// Force dynamic rendering to prevent static export errors
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+export async function GET(req: NextRequest) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    // Get user's Stripe customer ID
+    const customerId = (session.user as any).stripeCustomerId;
+    if (!customerId) {
+      return NextResponse.json({ invoices: [] }, { status: 200 });
+    }
+
+    // Fetch invoices from Stripe
+    const invoices = await stripe.invoices.list({
+      customer: customerId,
+      limit: 100,
+      expand: ["data.subscription"],
+    });
+
+    // Transform Stripe invoices to our format
+    const formattedInvoices: any[] = invoices.data.map((invoice) => ({
+      id: (invoice as any).id,
+      subscriptionId:
+        typeof (invoice as any).subscription === "string"
+          ? (invoice as any).subscription
+          : (invoice as any).subscription?.id || "",
+      stripeInvoiceId: (invoice as any).id,
+      number: (invoice as any).number || `INV-${(invoice as any).created}`,
+      status: (invoice as any).status as Invoice["status"],
+      amount: (invoice as any).amount_paid || (invoice as any).amount_due || 0,
+      currency: (invoice as any).currency,
+      dueDate: (invoice as any).due_date
+        ? new Date((invoice as any).due_date * 1000)
+        : undefined,
+      paidAt:
+        (invoice as any).status === "paid" &&
+        (invoice as any).status_transitions?.paid_at
+          ? new Date((invoice as any).status_transitions.paid_at * 1000)
+          : undefined,
+      periodStart: new Date((invoice as any).period_start * 1000),
+      periodEnd: new Date((invoice as any).period_end * 1000),
+      downloadUrl: (invoice as any).invoice_pdf,
+      createdAt: new Date((invoice as any).created * 1000),
+    }));
+
+    return NextResponse.json({ invoices: formattedInvoices });
+  } catch (error) {
+    console.error("Error fetching invoices:", error);
+    return NextResponse.json(
+      { error: "Failed to fetch invoices" },
+      { status: 500 },
+    );
+  }
+}

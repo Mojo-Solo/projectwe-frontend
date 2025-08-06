@@ -1,0 +1,105 @@
+'use client';
+
+import Section from "@/components/section";
+import Footer from "@/components/sections/footer";
+import Header from "@/components/sections/header";
+
+export default function WhyWeExitAi() {
+  return (
+    <>
+      <Header />
+      <main>
+        <Section
+          title="Why WeExit.ai"
+          subtitle="More than a tool—a new way to think, connect, and grow"
+          description="WeExit.ai isn't just about efficiency—it's about amplifying human intelligence, preserving company culture, and keeping knowledge alive as your business evolves."
+        >
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 mt-12">
+            <div className="bg-background rounded-lg p-6 border">
+              <h3 className="text-xl font-semibold mb-4">Collaborative Intelligence</h3>
+              <p className="text-muted-foreground">
+                Innovation flourishes when people build on each other&apos;s insights. WeExit.ai acts as a collective memory, enhancing human interaction rather than replacing it.
+              </p>
+            </div>
+            
+            <div className="bg-background rounded-lg p-6 border">
+              <h3 className="text-xl font-semibold mb-4">Human-Centric Approach</h3>
+              <p className="text-muted-foreground">
+                Trust, relationships, and creativity drive true success. WeExit.ai preserves emotional intelligence and context—not just raw data.
+              </p>
+            </div>
+            
+            <div className="bg-background rounded-lg p-6 border">
+              <h3 className="text-xl font-semibold mb-4">Simplicity & Integration</h3>
+              <p className="text-muted-foreground">
+                Teams crave clarity, not complexity. WeExit.ai&apos;s frictionless &quot;You Talk. We Do.&reg;&quot; design quietly collects insights without disrupting workflows.
+              </p>
+            </div>
+            
+            <div className="bg-background rounded-lg p-6 border">
+              <h3 className="text-xl font-semibold mb-4">Cultural Preservation</h3>
+              <p className="text-muted-foreground">
+                Culture is an organization&apos;s heartbeat. WeExit.ai proactively captures stories and lessons, so the &quot;why&quot; behind decisions is never lost.
+              </p>
+            </div>
+            
+            <div className="bg-background rounded-lg p-6 border">
+              <h3 className="text-xl font-semibold mb-4">Continuous Growth & Adaptation</h3>
+              <p className="text-muted-foreground">
+                Every organization evolves uniquely over time. WeExit.ai learns from real usage, staying relevant and valuable as your needs shift.
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-16 max-w-3xl mx-auto text-center">
+            <h2 className="text-2xl font-semibold mb-6">The future of work is human expertise, amplified</h2>
+            <p className="text-lg mb-8">
+              WeExit.ai transforms knowledge into action, ensuring that your company doesn&apos;t just grow—it grows smarter.
+            </p>
+            <p className="text-lg">
+              Whether you&apos;re onboarding new teams, integrating fresh leadership, or simply protecting the lifeblood of your organization&apos;s knowledge, WeExit.ai captures and preserves the very essence of what makes you unique—quietly and effortlessly.
+            </p>
+          </div>
+
+          <div className="mt-16 bg-primary/10 rounded-xl p-8">
+            <h3 className="text-xl font-semibold mb-4">What makes our difference</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse">
+                <thead>
+                  <tr>
+                    <th className="text-left p-4 border-b"></th>
+                    <th className="text-left p-4 border-b">WeExit.ai</th>
+                    <th className="text-left p-4 border-b">Other AI Platforms (e.g., ChatGPT)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td className="p-4 border-b font-medium">Approach</td>
+                    <td className="p-4 border-b">Human-centric, captures emotional intelligence</td>
+                    <td className="p-4 border-b">Generic, task-based responses</td>
+                  </tr>
+                  <tr>
+                    <td className="p-4 border-b font-medium">Knowledge Retention</td>
+                    <td className="p-4 border-b">Continuous, evolving, proactive</td>
+                    <td className="p-4 border-b">Static, disconnected, passive</td>
+                  </tr>
+                  <tr>
+                    <td className="p-4 border-b font-medium">Integration</td>
+                    <td className="p-4 border-b">Embedded in workflows (Slack, Teams, CRM)</td>
+                    <td className="p-4 border-b">Standalone chatbot</td>
+                  </tr>
+                  <tr>
+                    <td className="p-4 border-b font-medium">Usage Simplicity</td>
+                    <td className="p-4 border-b">Zero-effort knowledge capture</td>
+                    <td className="p-4 border-b">Requires manual input & prompts</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </Section>
+      </main>
+      <Footer />
+    </>
+  );
+} 

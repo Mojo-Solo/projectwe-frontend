@@ -1,0 +1,22 @@
+
+interface StakeholderDetailPageProps {
+  className?: string;
+  children?: React.ReactNode;
+}
+
+"use client";
+
+import React from "react";
+
+export default function StakeholderDetailPage({
+  params,
+}: {
+  params: { slug: string };
+}) {
+  return (
+    <div className="container mx-auto px-4 py-12">
+      <h1 className="text-3xl font-bold">Stakeholder: {params.slug}</h1>
+      <p>Loading stakeholder details...</p>
+    </div>
+  );
+}

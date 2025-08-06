@@ -1,0 +1,26 @@
+import { NextRequest, NextResponse } from "next/server";
+import { requireAdvisor } from "@/lib/auth-helpers";
+
+export async function GET(request: NextRequest) {
+  try {
+    // This will allow ADVISOR, ADMIN, and SUPER_ADMIN roles
+    const session = await requireAdvisor();
+    
+    return NextResponse.json({
+      message: "Advisor access granted",
+      user: {
+        id: session.user.id,
+        email: session.user.email,
+        role: session.user.role,
+        organizationId: session.user.organizationId,
+      },
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error("Advisor route error:", error);
+    return NextResponse.json(
+      { error: "Access denied" },
+      { status: 403 }
+    );
+  }
+}

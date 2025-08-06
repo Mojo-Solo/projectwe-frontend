@@ -1,0 +1,21 @@
+/* Custom styles for active tabs */
+.tabs-list-custom [data-state="active"] {
+  background-color: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  font-weight: 600;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.tabs-list-custom [data-state="active"]:hover {
+  background-color: hsl(var(--primary));
+  opacity: 0.9;
+}
+
+.tabs-list-custom [data-state="inactive"] {
+  opacity: 0.7;
+}
+
+.tabs-list-custom [data-state="inactive"]:hover {
+  opacity: 1;
+  background-color: hsl(var(--muted));
+}

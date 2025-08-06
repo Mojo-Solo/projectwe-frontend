@@ -1,0 +1,193 @@
+import { isDbAvailable, requireDbAsync } from '@/lib/db-guard';
+import { NextRequest, NextResponse } from "next/server";
+import { db } from "@/lib/database";
+import { users, passwordResetTokens } from "@/db/schema";
+import { eq, and, gt, isNull } from "drizzle-orm";
+import { z } from "zod";
+import { sendEmail, getPasswordResetTemplate } from "@/lib/email/email-service";
+import crypto from "crypto";
+import bcrypt from "bcryptjs";
+
+const requestResetSchema = z.object({
+  email: z.string().email(),
+});
+
+const resetPasswordSchema = z.object({
+  token: z.string(),
+  password: z.string().min(8),
+});
+
+// Request password reset
+export async function POST(request: NextRequest) {
+  if (!isDbAvailable()) {
+    return NextResponse.json(
+      { error: 'Service temporarily unavailable' },
+      { status: 503 }
+    );
+  }
+  
+  try {
+  try {
+    const body = await request.json();
+
+    // Handle password reset request
+    if ("email" in body) {
+      const { email } = requestResetSchema.parse(body);
+
+      const [user] = await db
+        .select()
+        .from(users)
+        .where(eq(users.email, email))
+        .limit(1);
+
+      if (!user) {
+        // Don't reveal whether user exists
+        return NextResponse.json({
+          success: true,
+          message:
+            "If an account exists with this email, you will receive a password reset link.",
+        });
+      }
+
+      // Generate reset token
+      const resetToken = crypto.randomBytes(32).toString("hex");
+      const resetTokenExpiry = new Date(Date.now() + 3600000); // 1 hour
+
+      // Save token to database
+      try {
+        await db.insert(passwordResetTokens).values({
+          userId: user.id,
+          token: resetToken,
+          expiresAt: resetTokenExpiry,
+        });
+      } catch (error) {
+        // If passwordResetTokens table doesn't exist yet, log the token
+        console.log("Password reset token (table may not exist):", {
+          userId: user.id,
+          token: resetToken,
+          expiresAt: resetTokenExpiry,
+        });
+      }
+
+      // Send reset email
+      const resetLink = `${process.env.NEXT_PUBLIC_APP_URL}/reset-password?token=${resetToken}`;
+      const emailTemplate = getPasswordResetTemplate({
+        userName: user.name || "there",
+        resetLink,
+      });
+
+      await sendEmail({
+        to: user.email,
+        subject: emailTemplate.subject,
+        html: emailTemplate.html,
+        text: emailTemplate.text,
+        tags: [
+          { name: "type", value: "password-reset" },
+          { name: "userId", value: user.id },
+        ],
+      });
+
+      return NextResponse.json({
+        success: true,
+        message:
+          "If an account exists with this email, you will receive a password reset link.",
+      });
+    }
+
+    // Handle password reset with token
+    if ("token" in body && "password" in body) {
+      const { token, password } = resetPasswordSchema.parse(body);
+
+      // Find valid token
+      try {
+        const [resetToken] = await db
+          .select()
+          .from(passwordResetTokens)
+          .where(
+            and(
+              eq(passwordResetTokens.token, token),
+              gt(passwordResetTokens.expiresAt, new Date()),
+              isNull(passwordResetTokens.used),
+            ),
+          )
+          .limit(1);
+
+        if (!resetToken) {
+          return NextResponse.json(
+            { error: "Invalid or expired reset token" },
+            { status: 400 },
+          );
+        }
+
+        // Get user
+        const [user] = await db
+          .select()
+          .from(users)
+          .where(eq(users.id, resetToken.userId))
+          .limit(1);
+
+        if (!user) {
+          return NextResponse.json(
+            { error: "User not found" },
+            { status: 404 },
+          );
+        }
+
+        // Hash new password
+        const hashedPassword = await bcrypt.hash(password, 10);
+
+        // Update user password
+        await db
+          .update(users)
+          .set({ password: hashedPassword })
+          .where(eq(users.id, user.id));
+
+        // Mark token as used
+        await db
+          .update(passwordResetTokens)
+          .set({ used: new Date() })
+          .where(eq(passwordResetTokens.id, resetToken.id));
+
+        // Log activity (if activity log exists)
+        // TODO: Implement activity logging when activityLog table is available
+
+        return NextResponse.json({
+          success: true,
+          message: "Password has been reset successfully",
+        });
+      } catch (error) {
+        console.error("Password reset error:", error);
+        // If table doesn't exist, return a more helpful error
+        return NextResponse.json(
+          { 
+            error: "Password reset is temporarily unavailable. Please contact support.",
+            details: process.env.NODE_ENV === "development" ? error : undefined,
+          },
+          { status: 503 },
+        );
+      }
+    }
+
+    return NextResponse.json({ error: "Invalid request" }, { status: 400 });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return NextResponse.json(
+        { error: "Invalid input", details: error.issues },
+        { status: 400 },
+      );
+    }
+
+    console.error("Password reset error:", error);
+    return NextResponse.json(
+      { error: "Failed to process password reset" },
+      { status: 500 },
+    );
+  }
+  } catch (error) {
+    console.error('Database error in POST:', error);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}

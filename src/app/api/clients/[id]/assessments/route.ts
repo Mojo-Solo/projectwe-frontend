@@ -1,0 +1,450 @@
+import { isDbAvailable, requireDbAsync } from "@/lib/db-guard";
+import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth/next";
+import { authOptions } from "@/lib/auth";
+import { db } from "@/lib/database";
+import { z } from "zod";
+import { clients } from "@/db/schema/client";
+import {
+  clientAssessments,
+  clientActivities,
+  assessmentTypeEnum,
+  assessmentStatusEnum,
+  activityTypeEnum,
+  activityCategoryEnum,
+  activityStatusEnum,
+} from "@/db/schema/client-activity";
+import { users } from "@/db/schema/user";
+import { and, eq, sql, desc, inArray } from "drizzle-orm";
+import {
+  ActivityType,
+  ActivityCategory,
+  ActivityStatus,
+  Priority,
+  AssessmentType,
+  AssessmentStatus,
+  EngagementLevel,
+} from "@/types/client";
+
+// This route must run at request time and in Node.js
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+// Note: Simplified to work with current Drizzle schema
+// Many enum types would need to be added to match full Prisma schema
+
+const createAssessmentSchema = z.object({
+  title: z.string().min(1, "Title is required"),
+  description: z.string().optional(),
+  assessmentType: z.nativeEnum(AssessmentType),
+  methodology: z.string().optional(),
+  overallScore: z.number().min(0).max(100).optional().default(0),
+  categoryScores: z.record(z.string(), z.number()).optional().default({}),
+  detailedResults: z.any().optional().default({}),
+  financialReadiness: z.number().min(0).max(100).optional(),
+  operationalReadiness: z.number().min(0).max(100).optional(),
+  marketReadiness: z.number().min(0).max(100).optional(),
+  legalReadiness: z.number().min(0).max(100).optional(),
+  personalReadiness: z.number().min(0).max(100).optional(),
+  keyFindings: z.array(z.any()).optional().default([]),
+  recommendations: z.array(z.any()).optional().default([]),
+  actionItems: z.array(z.any()).optional().default([]),
+  priorityActions: z.array(z.any()).optional().default([]),
+  status: z
+    .nativeEnum(AssessmentStatus)
+    .optional()
+    .default(AssessmentStatus.NOT_STARTED),
+});
+
+export async function GET(
+  req: NextRequest,
+  { params }: { params: { id: string } },
+) {
+  if (!isDbAvailable()) {
+    return NextResponse.json(
+      { error: "Service temporarily unavailable" },
+      { status: 503 },
+    );
+  }
+
+  try {
+    // Authentication
+    const session = await getServerSession(authOptions);
+
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { id: clientId } = params;
+    const { searchParams } = new URL(req.url);
+
+    const assessmentType = searchParams.get("type") as AssessmentType;
+    const status = searchParams.get("status") as AssessmentStatus;
+    const limit = Math.min(parseInt(searchParams.get("limit") || "50"), 100);
+    const page = parseInt(searchParams.get("page") || "1");
+    const offset = (page - 1) * limit;
+
+    // Verify client access
+    const clientResults = await db
+      .select()
+      .from(clients)
+      .where(
+        and(
+          eq(clients.id, clientId),
+          eq(clients.organizationId, session.user.organizationId),
+          session.user.role === "ADVISOR"
+            ? eq(clients.advisorId, session.user.id)
+            : undefined,
+        ),
+      )
+      .limit(1);
+
+    const client = clientResults[0];
+    if (!client) {
+      return NextResponse.json({ error: "Client not found" }, { status: 404 });
+    }
+
+    // Build where clauses
+    const whereConditions = [eq(clientAssessments.clientId, clientId)];
+    if (assessmentType) {
+      whereConditions.push(
+        eq(clientAssessments.assessmentType, assessmentType as any),
+      );
+    }
+    if (status) {
+      whereConditions.push(eq(clientAssessments.status, status as any));
+    }
+    const where = and(...whereConditions);
+
+    // Count total
+    const countResult = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(clientAssessments)
+      .where(where);
+    const totalCount = Number(countResult[0]?.count || 0);
+
+    // Fetch assessments with conductedBy user info
+    const assessmentResults = await db
+      .select({
+        id: clientAssessments.id,
+        clientId: clientAssessments.clientId,
+        title: clientAssessments.title,
+        description: clientAssessments.description,
+        assessmentType: clientAssessments.assessmentType,
+        methodology: clientAssessments.methodology,
+        overallScore: clientAssessments.overallScore,
+        categoryScores: clientAssessments.categoryScores,
+        detailedResults: clientAssessments.detailedResults,
+        financialReadiness: clientAssessments.financialReadiness,
+        operationalReadiness: clientAssessments.operationalReadiness,
+        marketReadiness: clientAssessments.marketReadiness,
+        legalReadiness: clientAssessments.legalReadiness,
+        personalReadiness: clientAssessments.personalReadiness,
+        keyFindings: clientAssessments.keyFindings,
+        recommendations: clientAssessments.recommendations,
+        actionItems: clientAssessments.actionItems,
+        priorityActions: clientAssessments.priorityActions,
+        status: clientAssessments.status,
+        createdAt: clientAssessments.createdAt,
+        updatedAt: clientAssessments.updatedAt,
+        conductedById: clientAssessments.conductedById,
+        conductedByName: users.name,
+        conductedByEmail: users.email,
+      })
+      .from(clientAssessments)
+      .leftJoin(users, eq(users.id, clientAssessments.conductedById))
+      .where(where)
+      .orderBy(desc(clientAssessments.createdAt))
+      .limit(limit)
+      .offset(offset);
+
+    // Format results to match expected structure
+    const assessments = assessmentResults.map((row) => ({
+      id: row.id,
+      clientId: row.clientId,
+      title: row.title,
+      description: row.description,
+      assessmentType: row.assessmentType,
+      methodology: row.methodology,
+      overallScore: row.overallScore,
+      categoryScores: row.categoryScores,
+      detailedResults: row.detailedResults,
+      financialReadiness: row.financialReadiness,
+      operationalReadiness: row.operationalReadiness,
+      marketReadiness: row.marketReadiness,
+      legalReadiness: row.legalReadiness,
+      personalReadiness: row.personalReadiness,
+      keyFindings: row.keyFindings,
+      recommendations: row.recommendations,
+      actionItems: row.actionItems,
+      priorityActions: row.priorityActions,
+      status: row.status,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+      conductedBy: row.conductedById
+        ? {
+            id: row.conductedById,
+            name: row.conductedByName,
+            email: row.conductedByEmail,
+          }
+        : null,
+    }));
+
+    const totalPages = Math.ceil(totalCount / limit);
+
+    return NextResponse.json({
+      assessments,
+      pagination: {
+        page,
+        limit,
+        total: totalCount,
+        totalPages,
+        hasNext: page < totalPages,
+        hasPrev: page > 1,
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching client assessments:", error);
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 },
+    );
+  }
+}
+
+export async function POST(
+  req: NextRequest,
+  { params }: { params: { id: string } },
+) {
+  if (!isDbAvailable()) {
+    return NextResponse.json(
+      { error: "Service temporarily unavailable" },
+      { status: 503 },
+    );
+  }
+
+  try {
+    // Authentication
+    const session = await getServerSession(authOptions);
+
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    // Check permissions - only advisors and admins can create assessments
+    if (!["ADMIN", "ADVISOR"].includes(session.user.role)) {
+      return NextResponse.json(
+        { error: "Insufficient permissions" },
+        { status: 403 },
+      );
+    }
+
+    const { id: clientId } = params;
+
+    // Verify client access
+    const clientResults = await db
+      .select()
+      .from(clients)
+      .where(
+        and(
+          eq(clients.id, clientId),
+          eq(clients.organizationId, session.user.organizationId),
+          session.user.role === "ADVISOR"
+            ? eq(clients.advisorId, session.user.id)
+            : undefined,
+        ),
+      )
+      .limit(1);
+
+    const client = clientResults[0];
+    if (!client) {
+      return NextResponse.json({ error: "Client not found" }, { status: 404 });
+    }
+
+    const body = await req.json();
+    const validatedData = createAssessmentSchema.parse(body);
+
+    // Create assessment
+    const insertResult = await db
+      .insert(clientAssessments)
+      .values({
+        ...validatedData,
+        clientId,
+        conductedById: session.user.id,
+      })
+      .returning();
+
+    const newAssessment = insertResult[0];
+
+    // Get conductor info
+    const conductorResult = await db
+      .select({
+        id: users.id,
+        name: users.name,
+        email: users.email,
+      })
+      .from(users)
+      .where(eq(users.id, session.user.id))
+      .limit(1);
+
+    const conductor = conductorResult[0];
+
+    // Format assessment with conductor info
+    const assessment = {
+      ...newAssessment,
+      conductedBy: conductor,
+    };
+
+    // Log activity
+    await db.insert(clientActivities).values({
+      clientId,
+      userId: session.user.id,
+      type: "ASSESSMENT_COMPLETED" as any,
+      title: `${validatedData.assessmentType} Assessment Created`,
+      description: `New ${validatedData.title} assessment initiated`,
+      completedAt: new Date(),
+    });
+
+    // Count assessments for this client
+    const countResult = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(clientAssessments)
+      .where(eq(clientAssessments.clientId, clientId));
+    const assessmentCount = Number(countResult[0]?.count || 0);
+
+    // Update client engagement level if this is their first assessment
+    if (assessmentCount === 1) {
+      await db
+        .update(clients)
+        .set({
+          engagementLevel: "MEDIUM" as any,
+          onboardingCompleted: client.onboardingCompleted || false,
+        })
+        .where(eq(clients.id, clientId));
+    }
+
+    return NextResponse.json(assessment, { status: 201 });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return NextResponse.json(
+        { error: "Validation error", issues: error.issues },
+        { status: 400 },
+      );
+    }
+
+    console.error("Error creating client assessment:", error);
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 },
+    );
+  }
+}
+
+// Bulk assessment operations
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: { id: string } },
+) {
+  if (!isDbAvailable()) {
+    return NextResponse.json(
+      { error: "Service temporarily unavailable" },
+      { status: 503 },
+    );
+  }
+
+  try {
+    // Authentication
+    const session = await getServerSession(authOptions);
+
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    if (!["ADMIN", "ADVISOR"].includes(session.user.role)) {
+      return NextResponse.json(
+        { error: "Insufficient permissions" },
+        { status: 403 },
+      );
+    }
+
+    const { id: clientId } = params;
+    const body = await req.json();
+    const { operation, assessmentIds, data } = body;
+
+    // Verify client access
+    const clientResults = await db
+      .select()
+      .from(clients)
+      .where(
+        and(
+          eq(clients.id, clientId),
+          eq(clients.organizationId, session.user.organizationId),
+          session.user.role === "ADVISOR"
+            ? eq(clients.advisorId, session.user.id)
+            : undefined,
+        ),
+      )
+      .limit(1);
+
+    const client = clientResults[0];
+    if (!client) {
+      return NextResponse.json({ error: "Client not found" }, { status: 404 });
+    }
+
+    let affected = 0;
+
+    switch (operation) {
+      case "updateStatus":
+        await db
+          .update(clientAssessments)
+          .set({ status: data.status, updatedAt: new Date() })
+          .where(
+            and(
+              inArray(clientAssessments.id, assessmentIds),
+              eq(clientAssessments.clientId, clientId),
+            ),
+          );
+        affected = assessmentIds.length;
+        break;
+
+      case "delete":
+        await db
+          .delete(clientAssessments)
+          .where(
+            and(
+              inArray(clientAssessments.id, assessmentIds),
+              eq(clientAssessments.clientId, clientId),
+            ),
+          );
+        affected = assessmentIds.length;
+        break;
+
+      default:
+        return NextResponse.json(
+          { error: "Invalid operation" },
+          { status: 400 },
+        );
+    }
+
+    // Log bulk operation
+    await db.insert(clientActivities).values({
+      clientId,
+      userId: session.user.id,
+      type: "NOTE_ADDED" as any,
+      title: `Bulk Assessment ${operation}`,
+      description: `Performed ${operation} on ${assessmentIds.length} assessments`,
+      completedAt: new Date(),
+    });
+
+    return NextResponse.json({
+      message: `${operation} completed successfully`,
+      affected,
+    });
+  } catch (error) {
+    console.error("Error in bulk assessment operation:", error);
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 },
+    );
+  }
+}

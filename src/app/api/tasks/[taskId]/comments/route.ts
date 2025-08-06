@@ -1,0 +1,97 @@
+import { isDbAvailable, requireDbAsync } from "@/lib/db-guard";
+import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth/next";
+import { authOptions } from "@/lib/auth";
+import { db } from "@/lib/database";
+import { tasks, taskComments, activities, notifications } from "@/db/schema";
+import { and, eq, desc } from "drizzle-orm";
+import { z } from "zod";
+
+// This route must run at request time and in Node.js
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+// ... GET handler and schema remain the same
+
+export async function POST(
+  req: NextRequest,
+  { params }: { params: { taskId: string } },
+) {
+  if (!isDbAvailable()) {
+    return NextResponse.json(
+      { error: "Service temporarily unavailable" },
+      { status: 503 },
+    );
+  }
+
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const body = await req.json();
+
+    const commentSchema = z.object({
+      content: z.string().min(1, "Content is required"),
+    });
+
+    const validation = commentSchema.safeParse(body);
+
+    if (!validation.success) {
+      return NextResponse.json(
+        { error: "Invalid input", details: validation.error.flatten() },
+        { status: 400 },
+      );
+    }
+
+    // Verify task exists and user has access
+    const [task] = await db
+      .select()
+      .from(tasks)
+      .where(
+        and(
+          eq(tasks.id, params.taskId),
+          eq(tasks.organizationId, session.user.organizationId),
+        ),
+      )
+      .limit(1);
+
+    if (!task) {
+      return NextResponse.json({ error: "Task not found" }, { status: 404 });
+    }
+
+    const result = await db.transaction(async (tx) => {
+      const [comment] = await tx
+        .insert(taskComments)
+        .values({
+          content: validation.data.content,
+          userId: session.user.id,
+          taskId: params.taskId,
+        })
+        .returning();
+
+      await tx.insert(activities).values({
+        type: "COMMENT_ADDED",
+        description: `Added a comment to task: ${task.title}`,
+        userId: session.user.id,
+        metadata: {
+          taskId: params.taskId,
+          commentId: comment.id,
+        },
+      });
+
+      // ... notification logic remains the same
+
+      return comment;
+    });
+
+    return NextResponse.json(result, { status: 201 });
+  } catch (error) {
+    console.error("Database error in POST:", error);
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 },
+    );
+  }
+}

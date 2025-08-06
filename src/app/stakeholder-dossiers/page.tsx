@@ -1,0 +1,168 @@
+
+interface StakeholderDossiersPageProps {
+  className?: string;
+  children?: React.ReactNode;
+}
+
+"use client";
+
+import React from "react";
+import Link from "next/link";
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  CardContent,
+} from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+
+export const dynamic = 'force-dynamic';
+
+// Define the stakeholder types
+const stakeholders = [
+  {
+    id: "business-owner",
+    name: "Business Owner",
+    role: "End-user/client",
+    description: "Planning exit, tracking progress, engaging with advisors",
+  },
+  {
+    id: "exit-planning-advisor",
+    name: "Exit Planning Advisor",
+    role: "Primary professional user",
+    description: "Managing client plans, coordinating team, delivering advice",
+  },
+  {
+    id: "supporting-advisor",
+    name: "Supporting Advisor",
+    role: "Team contributor",
+    description: "Contributing specialized expertise, document collaboration",
+  },
+  {
+    id: "julie-keyes",
+    name: "Julie Keyes",
+    role: "Domain expert/platform visionary",
+    description:
+      "Guiding platform development, providing content and expertise",
+  },
+  {
+    id: "platform-administrator",
+    name: "Platform Administrator",
+    role: "System manager",
+    description: "Configuring platform, managing users, ensuring security",
+  },
+  {
+    id: "strategic-ai-coach",
+    name: "Strategic AI Coach",
+    role: "AI component",
+    description: "Providing automated guidance and answering questions",
+  },
+];
+
+// Basic React Component
+export default function StakeholderDossiersPage() {
+  return (
+    <div className="container mx-auto px-4 py-12">
+      {/* Hero Section */}
+      <div className="text-center mb-16">
+        <h1 className="text-5xl font-bold tracking-tight mb-4 bg-gradient-to-r from-blue-500 to-teal-500 text-transparent bg-clip-text">
+          WE Exit Stakeholder Dossiers
+        </h1>
+        <p className="text-xl text-gray-600 dark:text-gray-300 max-w-3xl mx-auto">
+          Comprehensive profiles of each key stakeholder involved in the exit
+          planning ecosystem. These dossiers serve as essential reference
+          materials for understanding diverse needs, pain points, and success
+          metrics.
+        </p>
+      </div>
+
+      {/* Purpose Section */}
+      <div className="mb-16">
+        <h2 className="text-3xl font-bold mb-6 text-center">
+          Purpose and Usage
+        </h2>
+        <ul className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl mx-auto">
+          <li className="flex items-start gap-3">
+            <div className="mt-1 bg-blue-100 dark:bg-blue-900 p-2 rounded-full">
+              {/* Placeholder Icon */}
+            </div>
+            <div>
+              <h3 className="font-semibold text-lg">
+                User-Centered Design Reference
+              </h3>
+              <p className="text-gray-600 dark:text-gray-300">
+                Ensure all platform features align with genuine stakeholder
+                needs
+              </p>
+            </div>
+          </li>
+          <li className="flex items-start gap-3">
+            <div className="mt-1 bg-green-100 dark:bg-green-900 p-2 rounded-full">
+              {/* Placeholder Icon */}
+            </div>
+            <div>
+              <h3 className="font-semibold text-lg">
+                Development Prioritization
+              </h3>
+              <p className="text-gray-600 dark:text-gray-300">
+                Help prioritize features based on stakeholder impact and needs
+              </p>
+            </div>
+          </li>
+        </ul>
+      </div>
+
+      {/* Stakeholder Cards */}
+      <h2 className="text-3xl font-bold mb-6 text-center">
+        Stakeholder Profiles
+      </h2>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-12">
+        {stakeholders.map((stakeholder) => (
+          <Link key={stakeholder.id}
+            href={`/stakeholder-dossiers/${stakeholder.id}`}
+            className="group"
+          >
+            <Card className="h-full transition-all duration-300 group-hover:translate-y-[-4px]">
+              <CardHeader>
+                <CardTitle className="text-xl font-bold text-blue-600">
+                  {stakeholder.name}
+                </CardTitle>
+                <CardDescription className="font-medium">
+                  {stakeholder.role}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <p className="mb-4">{stakeholder.description}</p>
+                <Button
+                  variant="outline"
+                  className="w-full group-hover:bg-gray-100 dark:group-hover:bg-gray-800"
+                >
+                  View Dossier
+                </Button>
+              </CardContent>
+            </Card>
+          </Link>
+        ))}
+      </div>
+
+      {/* Call to Action */}
+      <div className="text-center max-w-2xl mx-auto">
+        <h2 className="text-2xl font-bold mb-4">
+          Ready to Understand Your Stakeholders?
+        </h2>
+        <p className="mb-6 text-gray-600 dark:text-gray-300">
+          Explore each stakeholder profile to better understand their needs,
+          pain points, and success metrics, and build a more effective exit
+          planning platform.
+        </p>
+        <Button
+          size="lg"
+          className="bg-gradient-to-r from-blue-600 to-teal-600 hover:from-blue-700 hover:to-teal-700"
+        >
+          Start Exploring
+        </Button>
+      </div>
+    </div>
+  );
+}

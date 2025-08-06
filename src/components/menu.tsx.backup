@@ -1,0 +1,150 @@
+"use client";
+
+import {
+  NavigationMenu,
+  NavigationMenuContent,
+  NavigationMenuItem,
+  NavigationMenuLink,
+  NavigationMenuList,
+  NavigationMenuTrigger,
+  navigationMenuTriggerStyle,
+} from "@/components/ui/navigation-menu";
+import { cn } from "@/lib/utils";
+import Link from "next/link";
+import * as React from "react";
+
+const components: { title: string; href: string; description: string }[] = [
+  {
+    title: "Strategic AI Coach",
+    href: "/features/strategic-ai-coach",
+    description:
+      "Receive tailored recommendations for your client's unique exit planning situation.",
+  },
+  {
+    title: "All-in-One Dashboard",
+    href: "/features/dashboard",
+    description:
+      "Visualize every client's exit journey clearly and track milestones effortlessly.",
+  },
+  {
+    title: "Seamless Collaboration",
+    href: "/features/collaboration",
+    description:
+      "Know who needs to be on your exit planning team and when to involve them.",
+  },
+  {
+    title: "Exit Strategy Library",
+    href: "/features/strategy-library",
+    description:
+      "Access a comprehensive knowledge base covering all exit planning strategies.",
+  },
+  {
+    title: "Scalable Solutions",
+    href: "/features/scalable-solutions",
+    description:
+      "Whether you're a sole proprietor or enterprise, our platform scales to meet your needs.",
+  },
+];
+
+export default function Menu() {
+  return (
+    <NavigationMenu>
+      <NavigationMenuList>
+        <NavigationMenuItem>
+          <NavigationMenuTrigger>Why Exit Planning AI</NavigationMenuTrigger>
+          <NavigationMenuContent>
+            <ul className="grid gap-3 p-6 md:w-[400px] lg:w-[500px] lg:grid-cols-[.75fr_1fr]">
+              <li className="row-span-3">
+                <NavigationMenuLink asChild>
+                  <a
+                    className="flex h-full w-full select-none flex-col justify-end rounded-md bg-gradient-to-b from-muted/50 to-muted p-6 no-underline outline-none focus:shadow-md"
+                    href="/"
+                  >
+                    <div className="mb-2 mt-4 text-lg font-medium">
+                      Exit Planning AI
+                    </div>
+                    <p className="text-sm leading-tight text-muted-foreground">
+                      Transform your exit planning practice with AI-powered insights and streamlined workflows.
+                    </p>
+                  </a>
+                </NavigationMenuLink>
+              </li>
+              <ListItem href="/why-exitplanningai" title="Overview">
+                Learn how Exit Planning AI revolutionizes exit planning.
+              </ListItem>
+              <ListItem href="/testimonials" title="Testimonials">
+                Hear from exit planning professionals who use our platform.
+              </ListItem>
+              <ListItem href="/case-studies" title="Case Studies">
+                See real-world success stories and results.
+              </ListItem>
+            </ul>
+          </NavigationMenuContent>
+        </NavigationMenuItem>
+        <NavigationMenuItem>
+          <NavigationMenuTrigger>Features</NavigationMenuTrigger>
+          <NavigationMenuContent>
+            <ul className="grid w-[400px] gap-3 p-4 md:w-[500px] md:grid-cols-2 lg:w-[600px] ">
+              {components.map((component) => (
+                <ListItem
+                  key={component.title}
+                  title={component.title}
+                  href={component.href}
+                >
+                  {component.description}
+                </ListItem>
+              ))}
+            </ul>
+          </NavigationMenuContent>
+        </NavigationMenuItem>
+        <NavigationMenuItem>
+          <Link href="/education" legacyBehavior passHref>
+            <NavigationMenuLink className={navigationMenuTriggerStyle()}>
+              Education
+            </NavigationMenuLink>
+          </Link>
+        </NavigationMenuItem>
+        <NavigationMenuItem>
+          <Link href="/pricing" legacyBehavior passHref>
+            <NavigationMenuLink className={navigationMenuTriggerStyle()}>
+              Pricing
+            </NavigationMenuLink>
+          </Link>
+        </NavigationMenuItem>
+        <NavigationMenuItem>
+          <Link href="/blog" legacyBehavior passHref>
+            <NavigationMenuLink className={navigationMenuTriggerStyle()}>
+              Blog
+            </NavigationMenuLink>
+          </Link>
+        </NavigationMenuItem>
+      </NavigationMenuList>
+    </NavigationMenu>
+  );
+}
+
+const ListItem = React.forwardRef<
+  React.ElementRef<"a">,
+  React.ComponentPropsWithoutRef<"a">
+>(({ className, title, children, ...props }, ref) => {
+  return (
+    <li>
+      <NavigationMenuLink asChild>
+        <a
+          ref={ref}
+          className={cn(
+            "block select-none space-y-1 rounded-md p-3 leading-none no-underline outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground",
+            className
+          )}
+          {...props}
+        >
+          <div className="text-sm font-medium leading-none">{title}</div>
+          <p className="line-clamp-2 text-sm leading-snug text-muted-foreground">
+            {children}
+          </p>
+        </a>
+      </NavigationMenuLink>
+    </li>
+  );
+});
+ListItem.displayName = "ListItem";

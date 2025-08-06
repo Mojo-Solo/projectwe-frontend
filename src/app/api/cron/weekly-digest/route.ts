@@ -1,0 +1,166 @@
+import { NextRequest, NextResponse } from "next/server";
+import { db } from "@/lib/database";
+import {
+  users as usersSchema,
+  organizations as organizationsSchema,
+  tasks as tasksSchema,
+  documents as documentsSchema,
+} from "@/db/schema";
+import { and, eq, gte, lte, sql } from "drizzle-orm";
+import {
+  sendBatchEmails,
+  getWeeklyDigestTemplate,
+} from "@/lib/email/email-service";
+
+// Force dynamic rendering to prevent static export errors
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+// This should be called by a cron job every week (e.g., Monday morning)
+export async function GET(request: NextRequest) {
+  try {
+    // Verify cron secret (for security)
+    const authHeader = request.headers.get("authorization");
+    if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    // Get all users who have weekly digest enabled
+    const users = await db
+      .select({
+        id: usersSchema.id,
+        email: usersSchema.email,
+        name: usersSchema.name,
+        organizationId: usersSchema.organizationId,
+        organization: {
+          id: organizationsSchema.id,
+          name: organizationsSchema.name,
+        },
+      })
+      .from(usersSchema)
+      .leftJoin(
+        organizationsSchema,
+        eq(usersSchema.organizationId, organizationsSchema.id),
+      )
+      .where(
+        and(
+          eq(sql`settings->'notifications'->>'weeklyDigest'`, sql`'true'`),
+          eq(usersSchema.emailVerified, sql`'true'`),
+        ),
+      );
+
+    const oneWeekAgo = new Date();
+    oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+
+    const emailPromises = [];
+
+    for (const user of users) {
+      if (!user.organization) continue;
+
+      // Get weekly stats
+      const [tasksCompleted, documentsShared, newMembers] = await Promise.all([
+        // Tasks completed
+        db
+          .select({ count: sql<number>`count(*)` })
+          .from(tasksSchema)
+          .where(
+            and(
+              eq(tasksSchema.assigneeId, user.id),
+              eq(tasksSchema.status, "COMPLETED"),
+              gte(tasksSchema.completedAt, oneWeekAgo),
+            ),
+          )
+          .then((res) => res[0]?.count || 0),
+        // Documents shared
+        db
+          .select({ count: sql<number>`count(*)` })
+          .from(documentsSchema)
+          .where(
+            and(
+              eq(documentsSchema.uploadedById, user.id),
+              gte(documentsSchema.createdAt, oneWeekAgo),
+            ),
+          )
+          .then((res) => res[0]?.count || 0),
+        // New members in workspace
+        db
+          .select({ count: sql<number>`count(*)` })
+          .from(usersSchema)
+          .where(
+            and(
+              eq(usersSchema.organizationId, user.organization.id),
+              gte(usersSchema.createdAt, oneWeekAgo),
+            ),
+          )
+          .then((res) => res[0]?.count || 0),
+      ]);
+
+      // Get upcoming deadlines
+      const upcomingTasks = await db
+        .select()
+        .from(tasksSchema)
+        .where(
+          and(
+            eq(tasksSchema.assigneeId, user.id),
+            eq(tasksSchema.status, "TODO"),
+            gte(tasksSchema.dueDate, new Date()),
+            lte(
+              tasksSchema.dueDate,
+              new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+            ),
+          ),
+        )
+        .orderBy(tasksSchema.dueDate)
+        .limit(5);
+
+      const upcomingDeadlines = upcomingTasks.map((task) => ({
+        title: task.title,
+        dueDate: task.dueDate?.toLocaleDateString() || "No due date",
+      }));
+
+      // Prepare email
+      const emailTemplate = getWeeklyDigestTemplate({
+        userName: user.name || "there",
+        weekSummary: {
+          tasksCompleted,
+          documentsShared,
+          newMembers,
+          upcomingDeadlines,
+        },
+        dashboardLink: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard`,
+      });
+
+      emailPromises.push({
+        to: user.email,
+        subject: emailTemplate.subject,
+        html: emailTemplate.html,
+        text: emailTemplate.text,
+        tags: [
+          { name: "type", value: "weekly-digest" },
+          { name: "userId", value: user.id },
+        ],
+      });
+    }
+
+    // Send all emails in batch
+    const result = await sendBatchEmails(emailPromises);
+
+    // Log the digest run
+    // NOTE: SystemLog not yet migrated to Drizzle, logging to console
+    console.log(`Weekly digest sent to ${result.sent} users`);
+
+    return NextResponse.json({
+      success: true,
+      sent: result.sent,
+      failed: result.failed,
+      total: users.length,
+    });
+  } catch (error) {
+    console.error("Weekly digest error:", error);
+    // NOTE: SystemLog not yet migrated to Drizzle, logging to console
+    return NextResponse.json(
+      { error: "Failed to send weekly digest" },
+      { status: 500 },
+    );
+  }
+}

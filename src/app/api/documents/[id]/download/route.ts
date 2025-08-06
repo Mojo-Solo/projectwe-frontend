@@ -1,0 +1,83 @@
+import { isDbAvailable, requireDbAsync } from "@/lib/db-guard";
+import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth/next";
+import { authOptions } from "@/lib/auth";
+import { db } from "@/lib/database";
+import { documents, documentAnalytics } from "@/db/schema";
+import { and, eq } from "drizzle-orm";
+import { getSignedDownloadUrl } from "../../s3-utils";
+import { checkDocumentAccess } from "@/lib/document-access";
+
+// This route must run at request time and in Node.js
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+export async function POST(
+  request: NextRequest,
+  { params }: { params: { id: string } },
+) {
+  if (!isDbAvailable()) {
+    return NextResponse.json(
+      { error: "Service temporarily unavailable" },
+      { status: 503 },
+    );
+  }
+
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { hasAccess, document } = await checkDocumentAccess(
+      params.id,
+      session.user.id,
+      "view",
+    );
+
+    if (!hasAccess || !document) {
+      return NextResponse.json(
+        { error: "Document not found or access denied" },
+        { status: 404 },
+      );
+    }
+
+    if (!document.fileUrl) {
+      return NextResponse.json(
+        { error: "Document file not found" },
+        { status: 404 },
+      );
+    }
+
+    const downloadUrl = await getSignedDownloadUrl(
+      document.fileUrl,
+      300,
+      document.title,
+    );
+
+    await db.insert(documentAnalytics).values({
+      documentId: params.id,
+      organizationId: session.user.organizationId,
+      action: "download",
+    });
+
+    await db
+      .update(documents)
+      .set({ updatedAt: new Date() })
+      .where(eq(documents.id, params.id));
+
+    return NextResponse.json({
+      url: downloadUrl,
+      expires_at: new Date(Date.now() + 300 * 1000).toISOString(),
+      filename: document.title,
+      size: document.fileSize,
+      mimeType: document.mimeType,
+    });
+  } catch (error) {
+    console.error("Error generating download URL:", error);
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 },
+    );
+  }
+}

@@ -1,0 +1,47 @@
+import { NextRequest, NextResponse } from "next/server";
+import { exitPlanningAI } from "@/lib/ai/ai-service";
+import { getServerSession } from "next-auth";
+
+// This route must run at request time and in Node.js
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+export async function POST(request: NextRequest) {
+  try {
+    const session = await getServerSession();
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const profileData = await request.json();
+
+    // Use AI to recommend exit strategy
+    let strategyReport;
+    try {
+      strategyReport = await exitPlanningAI.recommendExitStrategy(profileData);
+    } catch (error) {
+      // Fallback to rule-based strategy
+      const fallbackService = new (await import("@/lib/ai-api")).AIApiService();
+
+      const fallbackReport =
+        await fallbackService.generateExitStrategy(profileData);
+      strategyReport = {
+        ...fallbackReport,
+        aiGenerated: false,
+        message: "Using rule-based strategy generation",
+      };
+    }
+
+    return NextResponse.json({
+      success: true,
+      data: strategyReport,
+      timestamp: new Date(),
+    });
+  } catch (error) {
+    console.error("Strategy generation error:", error);
+    return NextResponse.json(
+      { error: "Failed to generate strategy" },
+      { status: 500 },
+    );
+  }
+}

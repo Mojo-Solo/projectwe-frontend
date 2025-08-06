@@ -1,0 +1,88 @@
+import { NextRequest, NextResponse } from "next/server";
+import { AIService } from "@/lib/ai/service";
+import { MicroAgentOrchestrator } from "@/lib/ai/micro-agents";
+import { getServerSession } from "next-auth/next";
+import { authOptions } from "@/lib/auth";
+
+// This route must run at request time and in Node.js
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+const aiService = new AIService({
+  openaiApiKey: process.env.OPENAI_API_KEY,
+  anthropicApiKey: process.env.ANTHROPIC_API_KEY,
+  defaultProvider: "openai",
+  enableCache: true,
+  circuitBreakerOptions: {
+    failureThreshold: 5,
+    recoveryTimeout: 60000,
+  },
+});
+
+const microAgents = new MicroAgentOrchestrator(aiService);
+
+export async function POST(request: NextRequest) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const body = await request.json();
+    const { agentIds, input, context, parallel = false } = body;
+
+    if (!agentIds || !Array.isArray(agentIds) || agentIds.length === 0) {
+      return NextResponse.json(
+        { error: "Agent IDs array is required" },
+        { status: 400 },
+      );
+    }
+
+    if (!input) {
+      return NextResponse.json({ error: "Input is required" }, { status: 400 });
+    }
+
+    await aiService.initialize();
+
+    let results;
+
+    if (parallel) {
+      // Execute agents in parallel
+      const promises = agentIds.map((agentId) =>
+        microAgents
+          .executeAgent(agentId, input, context)
+          .then((result) => ({ agentId, success: true, result }))
+          .catch((error) => ({
+            agentId,
+            success: false,
+            error: error.message,
+          })),
+      );
+
+      results = await Promise.all(promises);
+    } else {
+      // Execute agents sequentially (workflow style)
+      results = await microAgents.executeWorkflow(agentIds, input, context);
+    }
+
+    return NextResponse.json({
+      workflowId: `workflow-${Date.now()}`,
+      success: true,
+      results,
+      executionType: parallel ? "parallel" : "sequential",
+      timestamp: new Date().toISOString(),
+      providerStatus: aiService.getProviderStatus(),
+      cacheStats: aiService.getCacheStats(),
+    });
+  } catch (error: any) {
+    console.error("Micro-agent workflow API error:", error);
+    return NextResponse.json(
+      {
+        error: "Failed to execute workflow",
+        details: error.message,
+        timestamp: new Date().toISOString(),
+      },
+      { status: 500 },
+    );
+  }
+}

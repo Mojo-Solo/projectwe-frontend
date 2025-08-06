@@ -1,0 +1,137 @@
+import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth/next";
+import { authOptions } from "@/lib/auth";
+import { db } from "@/lib/database";
+import { exitPlans, marketUpdates } from "@/db/schema";
+import { and, eq, gte, desc } from "drizzle-orm";
+
+// Force dynamic rendering to prevent static export errors
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+// Industry market data
+const INDUSTRY_MARKET_DATA: Record<string, any> = {
+  technology: {
+    avgMultiple: 5.2,
+    trend: "increasing",
+    buyerDemand: "high",
+    dealVolume: 1250,
+    quarterGrowth: 0.08,
+  },
+  healthcare: {
+    avgMultiple: 4.8,
+    trend: "stable",
+    buyerDemand: "moderate",
+    dealVolume: 890,
+    quarterGrowth: 0.05,
+  },
+  manufacturing: {
+    avgMultiple: 3.5,
+    trend: "decreasing",
+    buyerDemand: "low",
+    dealVolume: 450,
+    quarterGrowth: -0.02,
+  },
+  retail: {
+    avgMultiple: 2.8,
+    trend: "stable",
+    buyerDemand: "moderate",
+    dealVolume: 650,
+    quarterGrowth: 0.03,
+  },
+  services: {
+    avgMultiple: 4.0,
+    trend: "increasing",
+    buyerDemand: "high",
+    dealVolume: 980,
+    quarterGrowth: 0.06,
+  },
+};
+
+export async function GET(request: NextRequest) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.organizationId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    // Extract search params
+    const searchParams = request.nextUrl.searchParams;
+    const exitPlanId = searchParams.get("exitPlanId");
+    const industry = searchParams.get("industry") || "technology";
+
+    let targetIndustry = industry.toLowerCase();
+    if (exitPlanId) {
+      const [exitPlan] = await db
+        .select()
+        .from(exitPlans)
+        .where(
+          and(
+            eq(exitPlans.id, exitPlanId),
+            eq(exitPlans.organizationId, session.user.organizationId),
+          ),
+        )
+        .limit(1);
+
+      if (exitPlan?.industry) {
+        targetIndustry = exitPlan.industry.toLowerCase();
+      }
+    }
+
+    const marketData =
+      INDUSTRY_MARKET_DATA[targetIndustry] || INDUSTRY_MARKET_DATA.technology;
+
+    const recentUpdates = await db
+      .select()
+      .from(marketUpdates)
+      .where(
+        and(
+          eq(marketUpdates.industry, targetIndustry),
+          gte(
+            marketUpdates.createdAt,
+            new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
+          ),
+        ),
+      )
+      .orderBy(desc(marketUpdates.createdAt))
+      .limit(5);
+
+    return NextResponse.json({
+      industry: targetIndustry,
+      currentConditions: {
+        avgMultiple: marketData.avgMultiple,
+        trend: marketData.trend,
+        buyerDemand: marketData.buyerDemand,
+        dealVolume: marketData.dealVolume,
+        quarterGrowth: marketData.quarterGrowth,
+        lastUpdated: new Date().toISOString(),
+      },
+      recentActivity: {
+        updates: recentUpdates,
+        totalDeals: marketData.dealVolume,
+        avgDealSize: marketData.avgMultiple * 1000000, // Example calculation
+      },
+      forecast: {
+        nextQuarter: {
+          expectedMultiple:
+            marketData.avgMultiple * (1 + marketData.quarterGrowth),
+          confidence: 0.75,
+        },
+        recommendations: [
+          marketData.buyerDemand === "high"
+            ? "Strong buyer interest - consider accelerating exit timeline"
+            : "Moderate market conditions - focus on value optimization",
+          marketData.trend === "increasing"
+            ? "Valuations trending upward - timing favorable"
+            : "Market stabilizing - ensure strong fundamentals",
+        ],
+      },
+    });
+  } catch (error) {
+    console.error("Market conditions error:", error);
+    return NextResponse.json(
+      { error: "Failed to fetch market conditions" },
+      { status: 500 },
+    );
+  }
+}

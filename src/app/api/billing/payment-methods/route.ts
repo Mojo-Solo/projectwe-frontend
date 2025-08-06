@@ -1,0 +1,64 @@
+import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth/next";
+import { authOptions } from "@/lib/auth";
+import { stripe } from "@/lib/stripe/config";
+import type { PaymentMethod } from "@/types/billing";
+
+// Force dynamic rendering to prevent static export errors
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+export async function GET(req: NextRequest) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    // Get user's Stripe customer ID
+    const customerId = (session.user as any).stripeCustomerId;
+    if (!customerId) {
+      return NextResponse.json({ paymentMethods: [] }, { status: 200 });
+    }
+
+    // Get customer's default payment method
+    const customer = await stripe.customers.retrieve(customerId);
+    const defaultPaymentMethodId =
+      typeof customer !== "string" && "invoice_settings" in customer
+        ? customer.invoice_settings?.default_payment_method
+        : null;
+
+    // Fetch payment methods from Stripe
+    const paymentMethods = await stripe.paymentMethods.list({
+      customer: customerId,
+      type: "card",
+    });
+
+    // Transform Stripe payment methods to our format
+    const formattedPaymentMethods: PaymentMethod[] = paymentMethods.data.map(
+      (pm) => ({
+        id: pm.id,
+        stripePaymentMethodId: pm.id,
+        type: pm.type as "card" | "bank_account",
+        card: pm.card
+          ? {
+              brand: pm.card.brand,
+              last4: pm.card.last4,
+              expMonth: pm.card.exp_month,
+              expYear: pm.card.exp_year,
+            }
+          : undefined,
+        isDefault: pm.id === defaultPaymentMethodId,
+        createdAt: new Date(pm.created * 1000),
+      }),
+    );
+
+    return NextResponse.json({ paymentMethods: formattedPaymentMethods });
+  } catch (error) {
+    console.error("Error fetching payment methods:", error);
+    return NextResponse.json(
+      { error: "Failed to fetch payment methods" },
+      { status: 500 },
+    );
+  }
+}

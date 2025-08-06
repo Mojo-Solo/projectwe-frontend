@@ -1,0 +1,135 @@
+"use client";
+
+import { useState } from "react";
+import AnimatedList from "@/components/magicui/animated-list";
+import AnimatedBeam from "@/components/magicui/animated-beam";
+import Marquee from "@/components/magicui/marquee";
+import { BorderBeam } from "@/components/magicui/border-beam";
+
+interface PipelineItem {
+  id: number;
+  label: string;
+  status?: "pending" | "active" | "completed";
+}
+
+interface PipelineConveyorProps {
+  title?: string;
+  className?: string;
+  items?: PipelineItem[];
+}
+
+const defaultItems: PipelineItem[] = [
+  { id: 1, label: "Stage 1: Idea", status: "completed" },
+  { id: 2, label: "Stage 2: Analysis", status: "completed" },
+  { id: 3, label: "Stage 3: Design", status: "active" },
+  { id: 4, label: "Stage 4: Implementation", status: "pending" },
+  { id: 5, label: "Stage 5: Testing", status: "pending" },
+  { id: 6, label: "Stage 6: Deployment", status: "pending" },
+];
+
+export default function PipelineConveyor({
+  title = "Pipeline Conveyor Demo",
+  className,
+  items = defaultItems,
+}: PipelineConveyorProps) {
+  const [pipelineItems] = useState(items);
+
+  // Get appropriate colors based on item status
+  const getItemStyles = (status: string = "pending") => {
+    switch (status) {
+      case "completed":
+        return "bg-green-800/30 border-green-500 text-green-200";
+      case "active":
+        return "bg-blue-800/30 border-blue-500 text-blue-200";
+      default:
+        return "bg-gray-800/30 border-gray-600 text-gray-300";
+    }
+  };
+
+  // Animation for the marquee items
+  const getMarqueeItem = (item: PipelineItem) => (
+    <div
+      key={item.id}
+      className={`
+        mx-8 px-6 py-3 border rounded-lg flex items-center
+        ${getItemStyles(item.status)}
+      `}
+    >
+      <span className="font-medium">{item.label}</span>
+    </div>
+  );
+
+  return (
+    <div className={`relative w-full px-4 py-16 bg-gray-900 text-white overflow-hidden ${className}`}>
+      {/* Animated beam track */}
+      <AnimatedBeam 
+        className="absolute top-1/2 left-0 w-full -translate-y-1/2 z-0" 
+        beamHeight={4}
+        beamColor="#333"
+        beamOpacity={0.5}
+        glowColor="#4f8eff"
+        glowSpread={50}
+        glowOpacity={0.8}
+        speed={2}
+      />
+
+      <div className="relative z-10 mx-auto max-w-5xl">
+        <div className="text-center mb-12">
+          <h2 className="text-3xl font-bold mb-2 inline-block relative">
+            {title}
+            <div className="absolute -inset-1 -z-10">
+              <BorderBeam 
+                size={300}
+                colorFrom="#4f8eff"
+                colorTo="#ff4f8e"
+                duration={10}
+              />
+            </div>
+          </h2>
+          <p className="text-gray-400 max-w-2xl mx-auto">
+            A visual representation of the workflow pipeline with animated conveyor belt effect.
+          </p>
+        </div>
+
+        {/* Marquee conveyor belt */}
+        <div className="bg-gray-800/30 rounded-xl p-4 mb-10 relative overflow-hidden">
+          <div className="absolute inset-0 bg-gradient-to-r from-gray-900/80 via-transparent to-gray-900/80 z-10 pointer-events-none" />
+          <Marquee 
+            className="py-2"
+            gradient={false}
+          >
+            {pipelineItems.map(getMarqueeItem)}
+          </Marquee>
+        </div>
+
+        {/* Step-by-step view */}
+        <div className="mt-10">
+          <h3 className="text-xl font-semibold mb-4">Pipeline Stages</h3>
+          <AnimatedList
+            items={pipelineItems.map((item) => ({
+              key: item.id.toString(),
+              content: (
+                <div 
+                  className={`
+                    p-4 rounded-lg shadow-lg mb-3 border
+                    transition-all duration-300 
+                    ${getItemStyles(item.status)}
+                  `}
+                >
+                  <div className="flex justify-between items-center">
+                    <h4 className="font-semibold text-lg">{item.label}</h4>
+                    <span className="text-xs uppercase px-2 py-1 rounded bg-black/30">
+                      {item.status}
+                    </span>
+                  </div>
+                </div>
+              ),
+            }))}
+            stagger={0.1}
+            animateFromSide="left"
+          />
+        </div>
+      </div>
+    </div>
+  );
+} 

@@ -1,0 +1,52 @@
+import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth/next";
+import { authOptions } from "@/lib/auth";
+import { stripe } from "@/lib/stripe/config";
+
+// This route must run at request time and in Node.js
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+export async function POST(req: NextRequest) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    // Get or create Stripe customer
+    let customerId = (session.user as any).stripeCustomerId;
+
+    if (!customerId) {
+      const customer = await stripe.customers.create({
+        email: session.user.email!,
+        metadata: {
+          userId: session.user.id,
+        },
+      });
+      customerId = customer.id;
+
+      // TODO: Update user with Stripe customer ID in database
+    }
+
+    // Create setup session for adding payment method
+    const setupSession = await stripe.checkout.sessions.create({
+      customer: customerId,
+      mode: "setup",
+      payment_method_types: ["card"],
+      success_url: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard/billing?payment_method_added=true`,
+      cancel_url: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard/billing`,
+      metadata: {
+        userId: session.user.id,
+      },
+    });
+
+    return NextResponse.json({ url: setupSession.url });
+  } catch (error) {
+    console.error("Error creating setup session:", error);
+    return NextResponse.json(
+      { error: "Failed to create setup session" },
+      { status: 500 },
+    );
+  }
+}

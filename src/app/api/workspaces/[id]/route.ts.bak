@@ -1,0 +1,216 @@
+import { isDbAvailable, requireDbAsync } from '@/lib/db-guard';
+import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth/next";
+import { authOptions } from "@/lib/auth";
+import { db } from "@/lib/database";
+import { workspaces, activityLogs, projects, tasks } from "@/db/schema";
+import { and, eq, count, not } from "drizzle-orm";
+import { z } from "zod";
+import { checkWorkspaceAccess } from "@/lib/workspace-utils";
+
+const updateWorkspaceSchema = z.object({
+  name: z.string().min(1).max(100).optional(),
+  description: z.string().max(500).optional(),
+});
+
+export async function GET(
+  request: NextRequest,
+  { params }: { params: { id: string } },
+) {
+  if (!isDbAvailable()) {
+    return NextResponse.json(
+      { error: 'Service temporarily unavailable' },
+      { status: 503 }
+    );
+  }
+  
+  try {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const member = await checkWorkspaceAccess(
+      params.id,
+      session.user.id,
+      "read",
+    );
+    if (!member) {
+      return NextResponse.json(
+        { error: "Workspace not found or access denied" },
+        { status: 404 },
+      );
+    }
+
+    return NextResponse.json({
+      workspace: member.workspace,
+      role: member.role,
+      permissions: member.permissions,
+    });
+  } catch (error) {
+    console.error("Error fetching workspace:", error);
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 },
+    );
+  }
+}
+
+export async function PUT(
+  request: NextRequest,
+  { params }: { params: { id: string } },
+) {
+  if (!isDbAvailable()) {
+    return NextResponse.json(
+      { error: 'Service temporarily unavailable' },
+      { status: 503 }
+    );
+  }
+  
+  try {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const member = await checkWorkspaceAccess(
+      params.id,
+      session.user.id,
+      "manage",
+    );
+    if (!member || member.role !== "ADMIN") {
+      return NextResponse.json(
+        { error: "Insufficient permissions" },
+        { status: 403 },
+      );
+    }
+
+    const body = await request.json();
+    const validatedData = updateWorkspaceSchema.parse(body);
+
+    const [updatedWorkspace] = await db
+      .update(workspaces)
+      .set({
+        ...validatedData,
+        updatedAt: new Date(),
+      })
+      .where(eq(workspaces.id, params.id))
+      .returning();
+
+    await db.insert(activityLogs).values({
+      userId: session.user.id,
+      organizationId: member.workspace.organizationId,
+      action: "workspace_updated",
+      resourceType: "workspace",
+      resourceId: params.id,
+      metadata: {
+        changes: validatedData,
+      },
+    });
+
+    return NextResponse.json(updatedWorkspace);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return NextResponse.json(
+        { error: "Invalid input", details: error.issues },
+        { status: 400 },
+      );
+    }
+
+    console.error("Error updating workspace:", error);
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 },
+    );
+  }
+}
+
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: { id: string } },
+) {
+  if (!isDbAvailable()) {
+    return NextResponse.json(
+      { error: 'Service temporarily unavailable' },
+      { status: 503 }
+    );
+  }
+  
+  try {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const member = await checkWorkspaceAccess(
+      params.id,
+      session.user.id,
+      "delete",
+    );
+    if (!member || member.role !== "ADMIN") {
+      return NextResponse.json(
+        { error: "Only workspace admin can delete" },
+        { status: 403 },
+      );
+    }
+
+    // Check for active projects
+    const [projectCount] = await db
+      .select({ count: count() })
+      .from(projects)
+      .where(
+        and(eq(projects.workspaceId, params.id), eq(projects.status, "active")),
+      );
+
+    // Check for incomplete tasks
+    const [taskCount] = await db
+      .select({ count: count() })
+      .from(tasks)
+      .where(
+        and(
+          eq(tasks.workspaceId, params.id),
+          not(eq(tasks.status, "COMPLETED")),
+        ),
+      );
+
+    if (projectCount.count > 0 || taskCount.count > 0) {
+      return NextResponse.json(
+        { error: "Cannot delete workspace with active projects or tasks" },
+        { status: 400 },
+      );
+    }
+
+    // Archive workspace instead of deleting
+    await db
+      .update(workspaces)
+      .set({
+        updatedAt: new Date(),
+      })
+      .where(eq(workspaces.id, params.id));
+
+    await db.insert(activityLogs).values({
+      userId: session.user.id,
+      organizationId: member.workspace.organizationId,
+      action: "workspace_archived",
+      resourceType: "workspace",
+      resourceId: params.id,
+      metadata: {
+        workspaceName: member.workspace.name,
+      },
+    });
+
+    return NextResponse.json({
+      success: true,
+      message: "Workspace archived successfully",
+    });
+  } catch (error) {
+    console.error("Error deleting workspace:", error);
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 },
+    );
+  }
+}
